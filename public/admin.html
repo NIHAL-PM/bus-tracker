@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KSRTC Admin Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            font-size: 1.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .stat-card h3 {
+            color: #667eea;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+        .stat-card .value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #333;
+        }
+        .section {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 1rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 0.8rem;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        th {
+            background: #f9fafb;
+            font-weight: 600;
+            color: #667eea;
+        }
+        tr:hover {
+            background: #f9fafb;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.3rem 0.8rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .badge-active {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .badge-inactive {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .btn {
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-right: 0.5rem;
+        }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+        .link-btn {
+            display: inline-block;
+            margin-top: 1rem;
+            color: #667eea;
+            text-decoration: none;
+        }
+        .link-btn:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚌 KSRTC Admin Dashboard</h1>
+    </div>
+
+    <div class="container">
+        <div class="stats">
+            <div class="stat-card">
+                <h3>Active Buses</h3>
+                <div class="value" id="activeBuses">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Buses Registered</h3>
+                <div class="value" id="totalBuses">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Active Routes</h3>
+                <div class="value" id="activeRoutes">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Last Update</h3>
+                <div class="value" style="font-size: 1.2rem;" id="lastUpdate">--</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Active Buses</h2>
+            <button class="btn btn-primary" onclick="refreshData()">Refresh</button>
+            <table id="busTable">
+                <thead>
+                    <tr>
+                        <th>Bus Number</th>
+                        <th>Route</th>
+                        <th>Driver ID</th>
+                        <th>Speed</th>
+                        <th>Status</th>
+                        <th>Last Update</th>
+                    </tr>
+                </thead>
+                <tbody id="busTableBody">
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 2rem;">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>Registered Buses</h2>
+            <table id="registeredTable">
+                <thead>
+                    <tr>
+                        <th>Bus ID</th>
+                        <th>Bus Number</th>
+                        <th>Route</th>
+                        <th>Depot</th>
+                        <th>Driver ID</th>
+                        <th>Registered At</th>
+                    </tr>
+                </thead>
+                <tbody id="registeredTableBody">
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 2rem;">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <a href="/" class="link-btn">← Back to Tracker</a>
+    </div>
+
+    <script>
+        async function fetchActiveBuses() {
+            try {
+                const response = await fetch('/api/location');
+                if (!response.ok) throw new Error('Failed to fetch');
+                return await response.json();
+            } catch (error) {
+                console.error('Error fetching active buses:', error);
+                return [];
+            }
+        }
+
+        async function fetchRegisteredBuses() {
+            try {
+                const response = await fetch('/api/buses');
+                if (!response.ok) throw new Error('Failed to fetch');
+                return await response.json();
+            } catch (error) {
+                console.error('Error fetching registered buses:', error);
+                return [];
+            }
+        }
+
+        function formatTime(date) {
+            return new Date(date).toLocaleString();
+        }
+
+        function updateStats(activeBuses, registeredBuses) {
+            document.getElementById('activeBuses').textContent = activeBuses.length;
+            document.getElementById('totalBuses').textContent = registeredBuses.length;
+            
+            const routes = new Set(activeBuses.map(b => b.routeNumber).filter(r => r && r !== 'N/A'));
+            document.getElementById('activeRoutes').textContent = routes.size;
+            
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+        }
+
+        function updateBusTable(buses) {
+            const tbody = document.getElementById('busTableBody');
+            
+            if (buses.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem;">No active buses</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = buses.map(bus => `
+                <tr>
+                    <td>${bus.busNumber || bus.busId}</td>
+                    <td>${bus.routeNumber || 'N/A'}</td>
+                    <td>${bus.driverId || 'Unknown'}</td>
+                    <td>${bus.speed || 0} km/h</td>
+                    <td><span class="badge badge-active">Active</span></td>
+                    <td>${formatTime(bus.timestamp)}</td>
+                </tr>
+            `).join('');
+        }
+
+        function updateRegisteredTable(buses) {
+            const tbody = document.getElementById('registeredTableBody');
+            
+            if (buses.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem;">No registered buses</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = buses.map(bus => `
+                <tr>
+                    <td>${bus.busId}</td>
+                    <td>${bus.busNumber || 'N/A'}</td>
+                    <td>${bus.routeNumber || 'N/A'}</td>
+                    <td>${bus.depot || 'N/A'}</td>
+                    <td>${bus.driverId || 'N/A'}</td>
+                    <td>${formatTime(bus.registeredAt)}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function refreshData() {
+            const activeBuses = await fetchActiveBuses();
+            const registeredBuses = await fetchRegisteredBuses();
+            
+            updateStats(activeBuses, registeredBuses);
+            updateBusTable(activeBuses);
+            updateRegisteredTable(registeredBuses);
+        }
+
+        // Initial load
+        refreshData();
+
+        // Auto-refresh every 10 seconds
+        setInterval(refreshData, 10000);
+    </script>
+</body>
+</html>

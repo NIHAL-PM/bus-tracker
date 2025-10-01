@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KSRTC Driver - Location Tracker</title>
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 2rem;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #667eea;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #555;
+            font-weight: 600;
+        }
+        input, select {
+            width: 100%;
+            padding: 0.8rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            width: 100%;
+            padding: 1rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 1rem;
+        }
+        .btn-primary {
+            background: #10b981;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #059669;
+        }
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+        .btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            text-align: center;
+            font-weight: 600;
+        }
+        .status.active {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .status.inactive {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .info {
+            background: #f3f4f6;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 0.5rem 0;
+        }
+        .logo {
+            text-align: center;
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        .link-btn {
+            display: block;
+            text-align: center;
+            margin-top: 1rem;
+            color: #667eea;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .link-btn:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🚌</div>
+        <h1>KSRTC Driver Tracker</h1>
+        
+        <div class="form-group">
+            <label>Bus Number</label>
+            <input type="text" id="busNumber" placeholder="e.g., KL-01-AB-1234" required>
+        </div>
+
+        <div class="form-group">
+            <label>Route Number</label>
+            <input type="text" id="routeNumber" placeholder="e.g., TVM-EKM-001">
+        </div>
+
+        <div class="form-group">
+            <label>Driver ID</label>
+            <input type="text" id="driverId" placeholder="Your driver ID">
+        </div>
+
+        <div class="form-group">
+            <label>Depot</label>
+            <select id="depot">
+                <option value="">Select Depot</option>
+                <option value="Thiruvananthapuram">Thiruvananthapuram</option>
+                <option value="Kochi">Kochi</option>
+                <option value="Kozhikode">Kozhikode</option>
+                <option value="Thrissur">Thrissur</option>
+                <option value="Kollam">Kollam</option>
+                <option value="Palakkad">Palakkad</option>
+                <option value="Kannur">Kannur</option>
+                <option value="Alappuzha">Alappuzha</option>
+                <option value="Kottayam">Kottayam</option>
+            </select>
+        </div>
+
+        <button class="btn btn-primary" id="startBtn">Start Tracking</button>
+        <button class="btn btn-danger" id="stopBtn" disabled>Stop Tracking</button>
+
+        <div class="status inactive" id="status">
+            Status: Not Tracking
+        </div>
+
+        <div class="info">
+            <div class="info-item">
+                <span>Last Update:</span>
+                <span id="lastUpdate">--</span>
+            </div>
+            <div class="info-item">
+                <span>Location Updates:</span>
+                <span id="updateCount">0</span>
+            </div>
+            <div class="info-item">
+                <span>Speed:</span>
+                <span id="speed">-- km/h</span>
+            </div>
+            <div class="info-item">
+                <span>Coordinates:</span>
+                <span id="coords">--</span>
+            </div>
+        </div>
+
+        <a href="/" class="link-btn">← Back to Tracker</a>
+    </div>
+
+    <script>
+        const API_URL = '/api/location';
+        let watchId = null;
+        let isTracking = false;
+        let updateCount = 0;
+        let busId = null;
+
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusEl = document.getElementById('status');
+        const lastUpdateEl = document.getElementById('lastUpdate');
+        const updateCountEl = document.getElementById('updateCount');
+        const speedEl = document.getElementById('speed');
+        const coordsEl = document.getElementById('coords');
+
+        startBtn.addEventListener('click', startTracking);
+        stopBtn.addEventListener('click', stopTracking);
+
+        async function startTracking() {
+            const busNumber = document.getElementById('busNumber').value;
+            const routeNumber = document.getElementById('routeNumber').value;
+            const driverId = document.getElementById('driverId').value;
+            const depot = document.getElementById('depot').value;
+
+            if (!busNumber) {
+                alert('Please enter bus number');
+                return;
+            }
+
+            busId = `KSRTC_${busNumber}`;
+
+            if (!navigator.geolocation) {
+                alert('Geolocation not supported');
+                return;
+            }
+
+            // Register bus
+            try {
+                await fetch('/api/buses', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ busNumber, routeNumber, depot, driverId })
+                });
+            } catch (error) {
+                console.error('Error registering bus:', error);
+            }
+
+            watchId = navigator.geolocation.watchPosition(
+                async (position) => {
+                    const { latitude, longitude, speed, heading } = position.coords;
+
+                    try {
+                        await fetch(API_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                busId,
+                                lat: latitude,
+                                lng: longitude,
+                                speed: speed ? (speed * 3.6).toFixed(1) : 0, // m/s to km/h
+                                heading: heading || 0,
+                                driverId,
+                                routeNumber,
+                                busNumber
+                            })
+                        });
+
+                        updateCount++;
+                        updateCountEl.textContent = updateCount;
+                        lastUpdateEl.textContent = new Date().toLocaleTimeString();
+                        speedEl.textContent = speed ? (speed * 3.6).toFixed(1) + ' km/h' : '0 km/h';
+                        coordsEl.textContent = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+                    } catch (error) {
+                        console.error('Error sending location:', error);
+                    }
+                },
+                (error) => {
+                    console.error('Location error:', error);
+                    alert('Error getting location: ' + error.message);
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: 5000
+                }
+            );
+
+            isTracking = true;
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            statusEl.className = 'status active';
+            statusEl.textContent = `Status: Tracking Bus ${busNumber}`;
+
+            // Disable form inputs
+            document.getElementById('busNumber').disabled = true;
+            document.getElementById('routeNumber').disabled = true;
+            document.getElementById('driverId').disabled = true;
+            document.getElementById('depot').disabled = true;
+        }
+
+        async function stopTracking() {
+            if (watchId) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+
+            // Remove from server
+            if (busId) {
+                try {
+                    await fetch(API_URL, {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ busId })
+                    });
+                } catch (error) {
+                    console.error('Error removing bus:', error);
+                }
+            }
+
+            isTracking = false;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            statusEl.className = 'status inactive';
+            statusEl.textContent = 'Status: Not Tracking';
+
+            // Enable form inputs
+            document.getElementById('busNumber').disabled = false;
+            document.getElementById('routeNumber').disabled = false;
+            document.getElementById('driverId').disabled = false;
+            document.getElementById('depot').disabled = false;
+        }
+
+        // Prevent accidental page close
+        window.addEventListener('beforeunload', (e) => {
+            if (isTracking) {
+                e.preventDefault();
+                e.returnValue = 'Tracking is active. Are you sure you want to leave?';
+            }
+        });
+
+        // Keep screen awake (if supported)
+        if ('wakeLock' in navigator) {
+            let wakeLock = null;
+            startBtn.addEventListener('click', async () => {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                } catch (err) {
+                    console.log('Wake Lock not supported');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
