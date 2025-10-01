@@ -1,8 +1,5 @@
 {
   "version": 2,
-  "env": {
-    "MONGODB_URI": "@mongodb_uri"
-  },
   "rewrites": [
     {
       "source": "/(.*)",
