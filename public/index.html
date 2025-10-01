@@ -808,10 +808,10 @@
             // async function fetchBuses() { ... }
 
             // Update bus markers on map
-            function updateBusMarkers(buses) {
+            async function updateBusMarkers(buses) {
                 const activeBusIds = new Set();
 
-                buses.forEach(bus => {
+                for (const bus of buses) {
                     activeBusIds.add(bus.busId);
                     
                     const position = [bus.lat, bus.lng];
@@ -825,7 +825,7 @@
                         // Create new marker
                         const marker = L.marker(position, { icon })
                             .addTo(map)
-                            .bindPopup(createPopupContent(bus));
+                            .bindPopup(await createPopupContent(bus));
                         
                         marker.on('click', () => {
                             selectedBusId = bus.busId;
@@ -837,8 +837,8 @@
                     }
 
                     // Update popup content
-                    busMarkers[bus.busId].setPopupContent(createPopupContent(bus));
-                });
+                    busMarkers[bus.busId].setPopupContent(await createPopupContent(bus));
+                }
 
                 // Remove markers for buses that are no longer active
                 Object.keys(busMarkers).forEach(busId => {
@@ -850,8 +850,37 @@
             }
 
             // Create popup content for bus
-            function createPopupContent(bus) {
+            async function createPopupContent(bus) {
                 const routeDisplay = bus.routeName || bus.routeNumber || 'N/A';
+                
+                let etaHtml = '';
+                
+                // Calculate ETA if destination stop is set
+                if (toStop && typeof ROUTE_STOPS !== 'undefined') {
+                    for (const [routeKey, routeData] of Object.entries(ROUTE_STOPS)) {
+                        const targetStopData = routeData.stops.find(stop => 
+                            stop.name.toLowerCase().includes(toStop.toLowerCase())
+                        );
+                        
+                        if (targetStopData && bus.lat && bus.lng) {
+                            const busLocation = { latitude: bus.lat, longitude: bus.lng, speed: bus.speed };
+                            const eta = await calculateETA(busLocation, targetStopData, routeKey);
+                            
+                            if (eta) {
+                                etaHtml = `
+                                    <div style="background: #f0fdf4; padding: 0.5rem; border-radius: 0.5rem; margin-top: 0.5rem;">
+                                        <p style="margin: 0; color: #10b981; font-weight: bold;">⏱️ ETA: ${formatETA(eta)}</p>
+                                        <p style="margin: 0.2rem 0 0; font-size: 0.8rem; color: #059669;">
+                                            📍 ${eta.distance.toFixed(1)} km via ${eta.method === 'osrm' ? 'road' : 'estimate'}
+                                        </p>
+                                    </div>
+                                `;
+                            }
+                            break;
+                        }
+                    }
+                }
+                
                 return `
                     <div style="min-width: 200px;">
                         <h3 style="margin: 0 0 0.5rem; color: #667eea;">
@@ -864,6 +893,7 @@
                         <p style="margin: 0.3rem 0; font-size: 0.8rem; color: #666;">
                             <strong>Last update:</strong> ${formatTime(bus.timestamp)}
                         </p>
+                        ${etaHtml}
                     </div>
                 `;
             }
