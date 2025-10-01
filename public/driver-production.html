@@ -1,0 +1,783 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="KSRTC Driver">
+    <meta name="theme-color" content="#667eea">
+    <title>KSRTC Driver - Location Tracker</title>
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 1rem;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 2rem;
+            max-width: 600px;
+            margin: 0 auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #667eea;
+            margin-bottom: 0.5rem;
+            text-align: center;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 2rem;
+            font-size: 0.9rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #555;
+            font-weight: 600;
+        }
+        input, select {
+            width: 100%;
+            padding: 0.8rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            width: 100%;
+            padding: 1rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 0.5rem;
+        }
+        .btn-primary {
+            background: #10b981;
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+        .btn-danger:hover:not(:disabled) {
+            background: #dc2626;
+        }
+        .btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .status {
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            text-align: center;
+            font-weight: 600;
+        }
+        .status.active {
+            background: #d1fae5;
+            color: #065f46;
+            animation: pulse 2s infinite;
+        }
+        .status.inactive {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .info {
+            background: #f3f4f6;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+        }
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .info-item:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            color: #6b7280;
+            font-weight: 600;
+        }
+        .info-value {
+            color: #111827;
+            font-weight: 700;
+        }
+        .tracking-indicator {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #ef4444;
+            display: inline-block;
+            margin-left: 10px;
+        }
+        .tracking-indicator.active {
+            background: #10b981;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .alert-info {
+            background: #dbeafe;
+            color: #1e40af;
+            border-left: 4px solid #3b82f6;
+        }
+        .alert-warning {
+            background: #fef3c7;
+            color: #92400e;
+            border-left: 4px solid #f59e0b;
+        }
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+            border-left: 4px solid #10b981;
+        }
+        .permissions {
+            background: #fef3c7;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            border-left: 4px solid #f59e0b;
+        }
+        .permissions h3 {
+            color: #92400e;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+        }
+        .permissions ul {
+            margin-left: 1.5rem;
+            color: #78350f;
+        }
+        .permissions li {
+            margin: 0.3rem 0;
+            font-size: 0.9rem;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+        .badge-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .badge-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .badge-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚌 KSRTC Driver Portal</h1>
+        <p class="subtitle">Production-Ready Location Tracking System</p>
+
+        <div id="permissionAlert" class="permissions" style="display: none;">
+            <h3>⚠️ Required Permissions</h3>
+            <ul>
+                <li>📍 <strong>Location Access</strong>: Always allow (even with screen locked)</li>
+                <li>🔔 <strong>Notifications</strong>: Enable for tracking alerts</li>
+                <li>🔋 <strong>Battery Optimization</strong>: Disable for this app</li>
+                <li>📶 <strong>Background Data</strong>: Enable for offline sync</li>
+            </ul>
+        </div>
+
+        <div id="form-container">
+            <div class="form-group">
+                <label for="busNumber">Bus Number *</label>
+                <input type="text" id="busNumber" placeholder="e.g., KL-13-AB-1234" required>
+            </div>
+
+            <div class="form-group">
+                <label for="routeNumber">Route Number *</label>
+                <input type="text" id="routeNumber" placeholder="e.g., IRT-TLY">
+            </div>
+
+            <div class="form-group">
+                <label for="routeName">Route Name *</label>
+                <input type="text" id="routeName" placeholder="e.g., Iritty to Thalassery">
+            </div>
+
+            <div class="form-group">
+                <label for="currentStop">Current Stop (Optional)</label>
+                <input type="text" id="currentStop" placeholder="e.g., Mattannur">
+            </div>
+
+            <div class="form-group">
+                <label for="driverId">Driver ID *</label>
+                <input type="text" id="driverId" placeholder="e.g., DRV001">
+            </div>
+
+            <div class="form-group">
+                <label for="depot">Depot</label>
+                <select id="depot">
+                    <option value="">Select Depot</option>
+                    <option value="Thalassery">Thalassery</option>
+                    <option value="Kannur">Kannur</option>
+                    <option value="Kozhikode">Kozhikode</option>
+                    <option value="Thrissur">Thrissur</option>
+                    <option value="Ernakulam">Ernakulam</option>
+                    <option value="Trivandrum">Trivandrum</option>
+                </select>
+            </div>
+
+            <button id="startBtn" class="btn btn-primary">🚀 Start Tracking</button>
+            <button id="stopBtn" class="btn btn-danger" disabled>⏹️ Stop Tracking</button>
+        </div>
+
+        <div id="statusEl" class="status inactive">
+            Status: Not Tracking
+            <span id="trackingIndicator" class="tracking-indicator"></span>
+        </div>
+
+        <div class="info">
+            <div class="info-item">
+                <span class="info-label">Updates Sent:</span>
+                <span class="info-value" id="updateCount">0</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Last Update:</span>
+                <span class="info-value" id="lastUpdate">Never</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Current Speed:</span>
+                <span class="info-value" id="speed">0 km/h</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Coordinates:</span>
+                <span class="info-value" id="coords">Not available</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Accuracy:</span>
+                <span class="info-value" id="accuracy">N/A</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Background Tracking:</span>
+                <span class="info-value" id="bgStatus">
+                    <span class="badge badge-warning">Checking...</span>
+                </span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Queue Status:</span>
+                <span class="info-value" id="queueStatus">0 pending</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = window.location.origin;
+        const API_URL = `${API_BASE}/api/location`;
+        const LOCATION_UPDATE_INTERVAL = 3000; // 3 seconds
+        const HIGH_ACCURACY = true;
+
+        // State
+        let isTracking = false;
+        let watchId = null;
+        let wakeLock = null;
+        let busId = null;
+        let updateCount = 0;
+        let lastPosition = null;
+        let sendInterval = null;
+        let serviceWorkerRegistration = null;
+
+        // DOM Elements
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusEl = document.getElementById('statusEl');
+        const trackingIndicatorEl = document.getElementById('trackingIndicator');
+        const updateCountEl = document.getElementById('updateCount');
+        const lastUpdateEl = document.getElementById('lastUpdate');
+        const speedEl = document.getElementById('speed');
+        const coordsEl = document.getElementById('coords');
+        const accuracyEl = document.getElementById('accuracy');
+        const bgStatusEl = document.getElementById('bgStatus');
+        const queueStatusEl = document.getElementById('queueStatus');
+        const permissionAlert = document.getElementById('permissionAlert');
+
+        // Initialize
+        window.addEventListener('load', init);
+
+        async function init() {
+            console.log('[Driver] Initializing...');
+            
+            // Register Service Worker
+            if ('serviceWorker' in navigator) {
+                try {
+                    serviceWorkerRegistration = await navigator.serviceWorker.register('/sw.js');
+                    console.log('[Driver] Service Worker registered:', serviceWorkerRegistration);
+                    
+                    // Listen for messages from service worker
+                    navigator.serviceWorker.addEventListener('message', handleSWMessage);
+                    
+                    // Check if already tracking (persist across page reloads)
+                    const savedState = localStorage.getItem('tracking State');
+                    if (savedState) {
+                        const state = JSON.parse(savedState);
+                        if (state.isTracking) {
+                            // Restore state
+                            restoreTrackingState(state);
+                        }
+                    }
+                    
+                    updateBGStatus('Service Worker Ready', 'success');
+                } catch (error) {
+                    console.error('[Driver] Service Worker registration failed:', error);
+                    updateBGStatus('SW Failed', 'error');
+                }
+            } else {
+                updateBGStatus('Not Supported', 'error');
+            }
+
+            // Check permissions
+            await checkPermissions();
+
+            // Request background sync permission
+            await requestBackgroundSync();
+
+            // Event listeners
+            startBtn.addEventListener('click', startTracking);
+            stopBtn.addEventListener('click', stopTracking);
+
+            // Handle page visibility change
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+
+            // Handle page unload (keep tracking)
+            window.addEventListener('beforeunload', handleBeforeUnload);
+        }
+
+        async function checkPermissions() {
+            let allGranted = true;
+
+            // Check location permission
+            if ('permissions' in navigator) {
+                try {
+                    const locationStatus = await navigator.permissions.query({ name: 'geolocation' });
+                    console.log('[Driver] Location permission:', locationStatus.state);
+                    if (locationStatus.state !== 'granted') {
+                        allGranted = false;
+                    }
+                } catch (e) {
+                    console.log('[Driver] Could not query geolocation permission');
+                }
+            }
+
+            // Check notification permission
+            if ('Notification' in window) {
+                if (Notification.permission !== 'granted') {
+                    allGranted = false;
+                }
+            }
+
+            if (!allGranted) {
+                permissionAlert.style.display = 'block';
+            }
+        }
+
+        async function requestBackgroundSync() {
+            if ('periodicSync' in serviceWorkerRegistration) {
+                try {
+                    const status = await navigator.permissions.query({
+                        name: 'periodic-background-sync',
+                    });
+                    
+                    if (status.state === 'granted') {
+                        await serviceWorkerRegistration.periodicSync.register('location-sync', {
+                            minInterval: 60 * 1000, // 1 minute
+                        });
+                        console.log('[Driver] Periodic background sync registered');
+                    }
+                } catch (error) {
+                    console.log('[Driver] Periodic sync not available:', error);
+                }
+            }
+        }
+
+        function handleSWMessage(event) {
+            console.log('[Driver] Message from SW:', event.data);
+            
+            if (event.data.type === 'SYNC_COMPLETE') {
+                console.log(`[Driver] ${event.data.count} locations synced`);
+                queueStatusEl.textContent = '0 pending';
+            }
+
+            if (event.data.type === 'REQUEST_LOCATION_UPDATE') {
+                // Service Worker requesting location update
+                if (isTracking && lastPosition) {
+                    sendLocation(lastPosition);
+                }
+            }
+        }
+
+        function handleVisibilityChange() {
+            if (document.hidden) {
+                console.log('[Driver] Page hidden, background tracking active');
+            } else {
+                console.log('[Driver] Page visible, foreground tracking active');
+            }
+        }
+
+        function handleBeforeUnload(e) {
+            if (isTracking) {
+                // Save state
+                saveTrackingState();
+                
+                // Don't show confirmation if tracking
+                // Let the service worker continue in background
+            }
+        }
+
+        function saveTrackingState() {
+            const state = {
+                isTracking: true,
+                busId: busId,
+                busNumber: document.getElementById('busNumber').value,
+                routeNumber: document.getElementById('routeNumber').value,
+                routeName: document.getElementById('routeName').value,
+                driverId: document.getElementById('driverId').value,
+                depot: document.getElementById('depot').value,
+                timestamp: Date.now()
+            };
+            localStorage.setItem('trackingState', JSON.stringify(state));
+        }
+
+        function restoreTrackingState(state) {
+            document.getElementById('busNumber').value = state.busNumber;
+            document.getElementById('routeNumber').value = state.routeNumber;
+            document.getElementById('routeName').value = state.routeName;
+            document.getElementById('driverId').value = state.driverId;
+            document.getElementById('depot').value = state.depot;
+            
+            // Auto-resume tracking
+            console.log('[Driver] Restoring tracking state from', new Date(state.timestamp));
+            startTracking();
+        }
+
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('[Driver] Wake Lock acquired');
+                    
+                    wakeLock.addEventListener('release', () => {
+                        console.log('[Driver] Wake Lock released');
+                    });
+                }
+            } catch (err) {
+                console.error('[Driver] Wake Lock error:', err);
+            }
+        }
+
+        async function releaseWakeLock() {
+            if (wakeLock !== null) {
+                try {
+                    await wakeLock.release();
+                    wakeLock = null;
+                } catch (err) {
+                    console.error('[Driver] Error releasing wake lock:', err);
+                }
+            }
+        }
+
+        async function sendLocation(position) {
+            const { latitude, longitude, speed, heading, accuracy } = position.coords;
+            
+            // Calculate speed from position change if device doesn't provide it
+            let calculatedSpeed = 0;
+            if (lastPosition && speed === null) {
+                const timeDiff = (position.timestamp - lastPosition.timestamp) / 1000;
+                const distance = calculateDistance(
+                    lastPosition.coords.latitude,
+                    lastPosition.coords.longitude,
+                    latitude,
+                    longitude
+                );
+                calculatedSpeed = (distance / timeDiff) * 3600; // km/h
+            }
+
+            const finalSpeed = speed ? (speed * 3.6).toFixed(1) : calculatedSpeed.toFixed(1);
+            const finalHeading = heading || calculateHeading(lastPosition, position);
+
+            const locationData = {
+                busId: busId,
+                lat: latitude,
+                lng: longitude,
+                speed: parseFloat(finalSpeed),
+                heading: finalHeading,
+                driverId: document.getElementById('driverId').value,
+                routeNumber: document.getElementById('routeNumber').value || document.getElementById('routeName').value,
+                busNumber: document.getElementById('busNumber').value,
+                routeName: document.getElementById('routeName').value,
+                currentStop: document.getElementById('currentStop').value || null,
+                accuracy: accuracy
+            };
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(locationData)
+                });
+
+                if (response.ok || response.status === 202) {
+                    updateCount++;
+                    updateCountEl.textContent = updateCount;
+                    lastUpdateEl.textContent = new Date().toLocaleTimeString();
+                    speedEl.textContent = finalSpeed + ' km/h';
+                    coordsEl.textContent = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+                    accuracyEl.textContent = `±${Math.round(accuracy)}m`;
+                    
+                    lastPosition = position;
+
+                    // If queued, notify user
+                    if (response.status === 202) {
+                        const queuedCount = parseInt(queueStatusEl.textContent) || 0;
+                        queueStatusEl.textContent = `${queuedCount + 1} pending`;
+                    }
+                } else {
+                    // Queue in service worker
+                    if (serviceWorkerRegistration && serviceWorkerRegistration.active) {
+                        serviceWorkerRegistration.active.postMessage({
+                            type: 'LOCATION_UPDATE',
+                            payload: locationData
+                        });
+                        console.log('[Driver] Location sent to SW for queuing');
+                    }
+                }
+            } catch (error) {
+                console.error('[Driver] Error sending location:', error);
+                
+                // Queue in service worker
+                if (serviceWorkerRegistration && serviceWorkerRegistration.active) {
+                    serviceWorkerRegistration.active.postMessage({
+                        type: 'LOCATION_UPDATE',
+                        payload: locationData
+                    });
+                }
+            }
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                     Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function calculateHeading(oldPos, newPos) {
+            if (!oldPos) return 0;
+            
+            const lat1 = oldPos.coords.latitude * Math.PI / 180;
+            const lat2 = newPos.coords.latitude * Math.PI / 180;
+            const dLon = (newPos.coords.longitude - oldPos.coords.longitude) * Math.PI / 180;
+            
+            const y = Math.sin(dLon) * Math.cos(lat2);
+            const x = Math.cos(lat1) * Math.sin(lat2) -
+                     Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+            const bearing = Math.atan2(y, x) * 180 / Math.PI;
+            
+            return (bearing + 360) % 360;
+        }
+
+        async function startTracking() {
+            const busNumber = document.getElementById('busNumber').value;
+            const routeNumber = document.getElementById('routeNumber').value;
+            const routeName = document.getElementById('routeName').value;
+            const driverId = document.getElementById('driverId').value;
+
+            if (!busNumber) {
+                alert('⚠️ Please enter bus number');
+                return;
+            }
+
+            if (!routeNumber && !routeName) {
+                alert('⚠️ Please enter route number or route name');
+                return;
+            }
+
+            if (!driverId) {
+                alert('⚠️ Please enter driver ID');
+                return;
+            }
+
+            busId = `KSRTC_${busNumber}`;
+
+            if (!navigator.geolocation) {
+                alert('❌ Geolocation not supported on this device');
+                return;
+            }
+
+            // Request permissions
+            await requestWakeLock();
+
+            if ('Notification' in window && Notification.permission === 'default') {
+                const permission = await Notification.requestPermission();
+                if (permission === 'granted') {
+                    new Notification('🚌 KSRTC Tracker', {
+                        body: 'Background tracking enabled for ' + busNumber,
+                        icon: '/icon-192.png'
+                    });
+                }
+            }
+
+            // Register bus
+            const depot = document.getElementById('depot').value;
+            try {
+                await fetch('/api/buses', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        busNumber, 
+                        routeNumber: routeNumber || routeName,
+                        routeName: routeName || routeNumber,
+                        depot, 
+                        driverId 
+                    })
+                });
+            } catch (error) {
+                console.error('[Driver] Error registering bus:', error);
+            }
+
+            // Start GPS tracking
+            watchId = navigator.geolocation.watchPosition(
+                async (position) => {
+                    await sendLocation(position);
+                },
+                (error) => {
+                    console.error('[Driver] Location error:', error);
+                    if (error.code === error.PERMISSION_DENIED) {
+                        alert('❌ Location permission denied. Please enable location services in settings.');
+                        stopTracking();
+                    } else if (error.code === error.POSITION_UNAVAILABLE) {
+                        alert('⚠️ Location unavailable. Please check your GPS settings.');
+                    } else if (error.code === error.TIMEOUT) {
+                        console.log('[Driver] Location timeout, retrying...');
+                    }
+                },
+                {
+                    enableHighAccuracy: HIGH_ACCURACY,
+                    maximumAge: 0,
+                    timeout: 10000
+                }
+            );
+
+            // Backup periodic updates
+            sendInterval = setInterval(async () => {
+                if (isTracking && lastPosition) {
+                    await sendLocation(lastPosition);
+                }
+            }, LOCATION_UPDATE_INTERVAL);
+
+            // Register background sync
+            if ('sync' in serviceWorkerRegistration) {
+                await serviceWorkerRegistration.sync.register('sync-locations');
+                console.log('[Driver] Background sync registered');
+            }
+
+            isTracking = true;
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            statusEl.className = 'status active';
+            statusEl.innerHTML = `Status: Tracking Bus ${busNumber} <span id="trackingIndicator" class="tracking-indicator active"></span>`;
+            
+            // Disable form inputs
+            document.querySelectorAll('input, select').forEach(el => el.disabled = true);
+            stopBtn.disabled = false;
+
+            // Save state
+            saveTrackingState();
+
+            updateBGStatus('Active', 'success');
+            permissionAlert.style.display = 'none';
+
+            console.log('[Driver] Tracking started for bus:', busNumber);
+        }
+
+        async function stopTracking() {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+
+            if (sendInterval !== null) {
+                clearInterval(sendInterval);
+                sendInterval = null;
+            }
+
+            await releaseWakeLock();
+
+            isTracking = false;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            statusEl.className = 'status inactive';
+            statusEl.innerHTML = 'Status: Not Tracking <span id="trackingIndicator" class="tracking-indicator"></span>';
+
+            // Enable form inputs
+            document.querySelectorAll('input, select').forEach(el => el.disabled = false);
+
+            // Clear state
+            localStorage.removeItem('trackingState');
+
+            updateBGStatus('Stopped', 'warning');
+
+            console.log('[Driver] Tracking stopped');
+        }
+
+        function updateBGStatus(text, type) {
+            const badges = {
+                success: 'badge-success',
+                warning: 'badge-warning',
+                error: 'badge-error'
+            };
+            bgStatusEl.innerHTML = `<span class="badge ${badges[type]}">${text}</span>`;
+        }
+    </script>
+</body>
+</html>

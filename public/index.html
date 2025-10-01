@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
           integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" 
           crossorigin=""/>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
     <link rel="manifest" href="/manifest.json">
     <style>
         * {
@@ -326,7 +325,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" 
             crossorigin=""></script>
-    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
     <script src="/route-stops.js"></script>
     <script>
         window.addEventListener('load', initApp);
@@ -373,7 +371,6 @@
             let fromStop = null;
             let toStop = null;
             let routePolylines = {}; // Store route polylines
-            let routingControls = {}; // Store routing machine instances
 
             const busSelect = document.getElementById('busSelect');
             const refreshBtn = document.getElementById('refreshBtn');
@@ -412,60 +409,91 @@
             // Initialize stops list
             populateStopsList();
 
-            // Draw route polylines on map using road routing
-            function drawRoutePolylines() {
+            // Draw route polylines on map using direct OSRM API
+            async function drawRoutePolylines() {
                 if (typeof ROUTE_STOPS === 'undefined') return;
 
-                // Clear existing routing controls
-                Object.values(routingControls).forEach(control => {
-                    map.removeControl(control);
+                // Clear existing polylines
+                Object.values(routePolylines).forEach(polyline => {
+                    if (polyline.layer) {
+                        map.removeLayer(polyline.layer);
+                    }
                 });
-                routingControls = {};
+                routePolylines = {};
 
-                // Draw route for each route using Leaflet Routing Machine
-                Object.entries(ROUTE_STOPS).forEach(([routeKey, routeData]) => {
-                    const waypoints = routeData.stops.map(stop => 
-                        L.latLng(stop.lat, stop.lng)
-                    );
-                    
-                    // Create routing control with OSRM for road-following
-                    const routingControl = L.Routing.control({
-                        waypoints: waypoints,
-                        routeWhileDragging: false,
-                        addWaypoints: false,
-                        draggableWaypoints: false,
-                        fitSelectedRoutes: false,
-                        showAlternatives: false,
-                        lineOptions: {
-                            styles: [{
+                // Draw route for each route using direct OSRM API
+                for (const [routeKey, routeData] of Object.entries(ROUTE_STOPS)) {
+                    try {
+                        // Build coordinate string for OSRM
+                        const coords = routeData.stops.map(stop => `${stop.lng},${stop.lat}`).join(';');
+                        const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+                        
+                        const response = await fetch(osrmUrl);
+                        const data = await response.json();
+                        
+                        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                            const route = data.routes[0];
+                            const coordinates = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+                            
+                            // Create polyline
+                            const polyline = L.polyline(coordinates, {
                                 color: '#667eea',
+                                weight: 4,
                                 opacity: 0.6,
-                                weight: 4
-                            }],
-                            extendToWaypoints: true,
-                            missingRouteTolerance: 10
-                        },
-                        createMarker: function() { return null; }, // Hide waypoint markers
-                        show: false, // Hide the instruction panel
-                        router: L.Routing.osrmv1({
-                            serviceUrl: 'https://router.project-osrm.org/route/v1'
-                        })
-                    }).addTo(map);
-
-                    // Store route data for ETA calculation
-                    routingControl.on('routesfound', function(e) {
-                        const route = e.routes[0];
+                                smoothFactor: 1
+                            }).addTo(map);
+                            
+                            // Add popup
+                            polyline.bindPopup(`
+                                <div style="text-align: center;">
+                                    <strong style="color: #667eea;">📍 ${routeData.name}</strong><br>
+                                    <small>${routeData.stops.length} stops</small><br>
+                                    <small style="color: #666;">Route: ${routeKey}</small><br>
+                                    <small style="color: #666;">Distance: ${(route.distance / 1000).toFixed(1)} km</small>
+                                </div>
+                            `);
+                            
+                            // Store route data
+                            routePolylines[routeKey] = {
+                                layer: polyline,
+                                distance: route.distance, // meters
+                                duration: route.duration, // seconds
+                                coordinates: coordinates,
+                                routeData: routeData
+                            };
+                            
+                            console.log(`[Route] ${routeKey} loaded: ${(route.distance / 1000).toFixed(1)} km`);
+                        }
+                    } catch (error) {
+                        console.warn(`[Route] Failed to load ${routeKey}, using straight lines:`, error);
+                        
+                        // Fallback to straight lines
+                        const coordinates = routeData.stops.map(stop => [stop.lat, stop.lng]);
+                        const polyline = L.polyline(coordinates, {
+                            color: '#667eea',
+                            weight: 4,
+                            opacity: 0.4,
+                            dashArray: '5, 10'
+                        }).addTo(map);
+                        
+                        polyline.bindPopup(`
+                            <div style="text-align: center;">
+                                <strong style="color: #667eea;">📍 ${routeData.name}</strong><br>
+                                <small>${routeData.stops.length} stops</small><br>
+                                <small style="color: #666;">Route: ${routeKey}</small><br>
+                                <small style="color: #f59e0b;">⚠️ Simplified view</small>
+                            </div>
+                        `);
+                        
                         routePolylines[routeKey] = {
-                            control: routingControl,
-                            distance: route.summary.totalDistance, // meters
-                            duration: route.summary.totalTime, // seconds
-                            coordinates: route.coordinates,
+                            layer: polyline,
+                            distance: 0,
+                            duration: 0,
+                            coordinates: coordinates,
                             routeData: routeData
                         };
-                    });
-
-                    routingControls[routeKey] = routingControl;
-                });
+                    }
+                }
             }
 
             // Calculate ETA for a bus to reach a specific stop using OSRM
@@ -502,7 +530,8 @@
                             distance: roadDistance,
                             eta: Math.round(etaMinutes),
                             speed: busSpeed || Math.round((roadDistance / osrmDuration) * 60),
-                            method: 'osrm'
+                            method: 'osrm',
+                            stopName: targetStop.name
                         };
                     }
                 } catch (error) {
@@ -525,8 +554,57 @@
                     distance: roadDistance,
                     eta: Math.round(etaMinutes),
                     speed: busSpeed,
-                    method: 'fallback'
+                    method: 'fallback',
+                    stopName: targetStop.name
                 };
+            }
+
+            // Calculate ETAs for all stops along the route from current bus position
+            async function calculateAllStopsETA(bus) {
+                if (!bus._matchedRouteKey || !bus.lat || !bus.lng || typeof ROUTE_STOPS === 'undefined') {
+                    return [];
+                }
+
+                const routeData = ROUTE_STOPS[bus._matchedRouteKey];
+                if (!routeData) return [];
+
+                const busLocation = { latitude: bus.lat, longitude: bus.lng, speed: bus.speed };
+                const allETAs = [];
+
+                // Determine which stops to calculate based on direction
+                const fromIdx = bus._fromStopIndex;
+                const toIdx = bus._toStopIndex;
+                const closestIdx = bus._closestStopIndex;
+
+                let stopsToCalculate = [];
+                
+                if (bus._searchDirection === 'forward') {
+                    // Forward: Calculate from closest stop to destination
+                    for (let i = closestIdx; i <= toIdx; i++) {
+                        stopsToCalculate.push({ stop: routeData.stops[i], index: i });
+                    }
+                } else {
+                    // Reverse: Calculate from closest stop down to destination
+                    for (let i = closestIdx; i >= toIdx; i--) {
+                        stopsToCalculate.push({ stop: routeData.stops[i], index: i });
+                    }
+                }
+
+                // Calculate ETA for each stop
+                for (const { stop, index } of stopsToCalculate) {
+                    const eta = await calculateETA(busLocation, stop, bus._matchedRouteKey);
+                    if (eta) {
+                        allETAs.push({
+                            ...eta,
+                            index: index,
+                            isOrigin: index === fromIdx,
+                            isDestination: index === toIdx,
+                            isCurrent: index === closestIdx
+                        });
+                    }
+                }
+
+                return allETAs;
             }
 
             // Format ETA display
@@ -545,49 +623,54 @@
             // Highlight specific route polyline
             function highlightRoutePolyline(routeKey) {
                 // Reset all routes to default style
-                Object.entries(routingControls).forEach(([key, control]) => {
-                    control.getPlan().setWaypoints(control.getWaypoints());
-                    control.options.lineOptions.styles[0] = {
-                        color: '#667eea',
-                        weight: 4,
-                        opacity: 0.6
-                    };
+                Object.entries(routePolylines).forEach(([key, data]) => {
+                    if (data.layer) {
+                        data.layer.setStyle({
+                            color: '#667eea',
+                            weight: 4,
+                            opacity: 0.6
+                        });
+                    }
                 });
 
                 // Highlight selected route
-                if (routeKey && routingControls[routeKey]) {
-                    routingControls[routeKey].options.lineOptions.styles[0] = {
+                if (routeKey && routePolylines[routeKey] && routePolylines[routeKey].layer) {
+                    routePolylines[routeKey].layer.setStyle({
                         color: '#10b981',
                         weight: 6,
                         opacity: 0.9
-                    };
+                    });
+                    routePolylines[routeKey].layer.bringToFront();
                 }
             }
 
             // Show only specific route polyline
             function showOnlyRoutePolyline(routeKey) {
-                Object.entries(routingControls).forEach(([key, control]) => {
-                    if (routeKey && key !== routeKey) {
-                        control.options.lineOptions.styles[0] = {
-                            color: '#667eea',
-                            weight: 2,
-                            opacity: 0.2
-                        };
-                    } else {
-                        control.options.lineOptions.styles[0] = {
-                            color: '#667eea',
-                            weight: 4,
-                            opacity: 0.6
-                        };
+                Object.entries(routePolylines).forEach(([key, data]) => {
+                    if (data.layer) {
+                        if (routeKey && key !== routeKey) {
+                            data.layer.setStyle({
+                                color: '#667eea',
+                                weight: 2,
+                                opacity: 0.2
+                            });
+                        } else {
+                            data.layer.setStyle({
+                                color: '#667eea',
+                                weight: 4,
+                                opacity: 0.6
+                            });
+                        }
                     }
                 });
 
-                if (routeKey && routingControls[routeKey]) {
-                    routingControls[routeKey].options.lineOptions.styles[0] = {
+                if (routeKey && routePolylines[routeKey] && routePolylines[routeKey].layer) {
+                    routePolylines[routeKey].layer.setStyle({
                         color: '#10b981',
                         weight: 6,
                         opacity: 0.9
-                    };
+                    });
+                    routePolylines[routeKey].layer.bringToFront();
                 }
             }
 
@@ -714,8 +797,50 @@
 
                         // If both stops found on this route
                         if (fromIndex !== -1 && toIndex !== -1) {
-                            // Check if bus travels from 'from' to 'to' (in either direction)
-                            if (fromIndex < toIndex || fromIndex > toIndex) {
+                            // Determine direction based on stop order
+                            const travelDirection = fromIndex < toIndex ? 'forward' : 'reverse';
+                            
+                            // Store direction info on bus object for later use
+                            bus._searchDirection = travelDirection;
+                            bus._fromStopIndex = fromIndex;
+                            bus._toStopIndex = toIndex;
+                            bus._matchedRouteKey = routeKey;
+                            bus._fromStopName = routeData.stops[fromIndex].name;
+                            bus._toStopName = routeData.stops[toIndex].name;
+                            
+                            // Now check if bus is actually heading in this direction
+                            if (bus.lat && bus.lng) {
+                                // Calculate which stop the bus is closest to
+                                let minDistance = Infinity;
+                                let closestStopIndex = -1;
+                                
+                                routeData.stops.forEach((stop, idx) => {
+                                    const dist = calculateDistance(bus.lat, bus.lng, stop.lat, stop.lng);
+                                    if (dist < minDistance) {
+                                        minDistance = dist;
+                                        closestStopIndex = idx;
+                                    }
+                                });
+                                
+                                bus._closestStopIndex = closestStopIndex;
+                                bus._closestStopName = routeData.stops[closestStopIndex]?.name;
+                                
+                                // Check if bus is traveling in correct direction
+                                if (travelDirection === 'forward') {
+                                    // Bus should be at or before the 'to' stop
+                                    if (closestStopIndex <= toIndex) {
+                                        matchedRouteKey = routeKey;
+                                        return true;
+                                    }
+                                } else {
+                                    // Reverse direction: Bus should be at or before the 'to' stop (which has lower index)
+                                    if (closestStopIndex >= toIndex) {
+                                        matchedRouteKey = routeKey;
+                                        return true;
+                                    }
+                                }
+                            } else {
+                                // If no location data, include it tentatively
                                 matchedRouteKey = routeKey;
                                 return true;
                             }
@@ -732,16 +857,30 @@
                     showOnlyRoutePolyline(matchedRouteKey);
                 } else {
                     // Reset routes if no specific route matched
-                    Object.entries(routingControls).forEach(([key, control]) => {
-                        control.options.lineOptions.styles[0] = {
-                            color: '#667eea',
-                            weight: 4,
-                            opacity: 0.6
-                        };
+                    Object.entries(routePolylines).forEach(([key, data]) => {
+                        if (data.layer) {
+                            data.layer.setStyle({
+                                color: '#667eea',
+                                weight: 4,
+                                opacity: 0.6
+                            });
+                        }
                     });
                 }
 
                 return filtered;
+            }
+
+            // Calculate straight-line distance between two points (Haversine)
+            function calculateDistance(lat1, lng1, lat2, lng2) {
+                const R = 6371; // Earth's radius in km
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLon = (lng2 - lng1) * Math.PI / 180;
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                return R * c; // km
             }
 
             // Search button handler
@@ -793,12 +932,14 @@
                 filterBadge.style.display = 'none';
                 
                 // Reset all routes to default
-                Object.entries(routingControls).forEach(([key, control]) => {
-                    control.options.lineOptions.styles[0] = {
-                        color: '#667eea',
-                        weight: 4,
-                        opacity: 0.6
-                    };
+                Object.entries(routePolylines).forEach(([key, data]) => {
+                    if (data.layer) {
+                        data.layer.setStyle({
+                            color: '#667eea',
+                            weight: 4,
+                            opacity: 0.6
+                        });
+                    }
                 });
                 
                 fetchBuses();
@@ -855,8 +996,51 @@
                 
                 let etaHtml = '';
                 
-                // Calculate ETA if destination stop is set
-                if (toStop && typeof ROUTE_STOPS !== 'undefined') {
+                // Calculate ETA for all relevant stops if search is active
+                if (bus._matchedRouteKey && bus._fromStopName && bus._toStopName) {
+                    const allETAs = await calculateAllStopsETA(bus);
+                    
+                    if (allETAs.length > 0) {
+                        // Find origin and destination ETAs
+                        const originETA = allETAs.find(e => e.isOrigin);
+                        const destinationETA = allETAs.find(e => e.isDestination);
+                        const currentStop = bus._closestStopName || 'Unknown';
+                        
+                        etaHtml = `
+                            <div style="background: #f0fdf4; padding: 0.75rem; border-radius: 0.5rem; margin-top: 0.5rem; border-left: 3px solid #10b981;">
+                                <p style="margin: 0 0 0.5rem; color: #059669; font-weight: bold; font-size: 0.9rem;">
+                                    🎯 Direction: ${bus._searchDirection === 'forward' ? '→' : '←'} ${bus._searchDirection}
+                                </p>
+                                <p style="margin: 0 0 0.3rem; color: #047857; font-size: 0.85rem;">
+                                    📍 Current: <strong>${currentStop}</strong>
+                                </p>
+                                ${originETA ? `
+                                    <p style="margin: 0 0 0.3rem; color: #065f46; font-size: 0.85rem;">
+                                        🔵 ${bus._fromStopName}: <strong>${formatETA(originETA)}</strong> (${originETA.distance.toFixed(1)} km)
+                                    </p>
+                                ` : ''}
+                                ${destinationETA ? `
+                                    <p style="margin: 0; color: #10b981; font-weight: bold; font-size: 0.9rem;">
+                                        ⏱️ ${bus._toStopName}: <strong>${formatETA(destinationETA)}</strong> (${destinationETA.distance.toFixed(1)} km)
+                                    </p>
+                                ` : ''}
+                                <hr style="margin: 0.5rem 0; border: none; border-top: 1px solid #d1fae5;">
+                                <details style="cursor: pointer;">
+                                    <summary style="color: #059669; font-size: 0.8rem; font-weight: bold;">📋 All Stops (${allETAs.length})</summary>
+                                    <div style="margin-top: 0.5rem; max-height: 200px; overflow-y: auto;">
+                                        ${allETAs.map(eta => `
+                                            <p style="margin: 0.3rem 0; font-size: 0.8rem; color: ${eta.isDestination ? '#10b981' : eta.isOrigin ? '#3b82f6' : '#6b7280'};">
+                                                ${eta.isCurrent ? '📍' : eta.isDestination ? '🎯' : eta.isOrigin ? '🔵' : '•'} 
+                                                <strong>${eta.stopName}</strong>: ${formatETA(eta)} (${eta.distance.toFixed(1)} km)
+                                            </p>
+                                        `).join('')}
+                                    </div>
+                                </details>
+                            </div>
+                        `;
+                    }
+                } else if (toStop && typeof ROUTE_STOPS !== 'undefined') {
+                    // Fallback: Single destination ETA
                     for (const [routeKey, routeData] of Object.entries(ROUTE_STOPS)) {
                         const targetStopData = routeData.stops.find(stop => 
                             stop.name.toLowerCase().includes(toStop.toLowerCase())
@@ -882,7 +1066,7 @@
                 }
                 
                 return `
-                    <div style="min-width: 200px;">
+                    <div style="min-width: 220px;">
                         <h3 style="margin: 0 0 0.5rem; color: #667eea;">
                             🚌 ${bus.busNumber || bus.busId}
                         </h3>
