@@ -1,0 +1,717 @@
+// PROJECT STRUCTURE FOR VERCEL DEPLOYMENT
+// ==========================================
+// 
+// Root Directory:
+// ├── api/
+// │   ├── location.js
+// │   └── users.js
+// ├── public/
+// │   └── index.html
+// ├── package.json
+// └── vercel.json
+
+// ==========================================
+// FILE 1: package.json
+// ==========================================
+{
+  "name": "bus-tracker",
+  "version": "1.0.0",
+  "description": "Live bus location tracking app",
+  "main": "index.js",
+  "scripts": {
+    "start": "node api/location.js"
+  },
+  "dependencies": {
+    "mongodb": "^6.3.0",
+    "cors": "^2.8.5"
+  }
+}
+
+// ==========================================
+// FILE 2: vercel.json
+// ==========================================
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "public/index.html",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1"
+    }
+  ]
+}
+
+// ==========================================
+// FILE 3: api/location.js
+// ==========================================
+const { MongoClient, ServerApiVersion } = require('mongodb');
+
+const uri = "mongodb+srv://muhammednihal24ag039:l6ZrDiiOk3TY74aV@cluster0.pppmmcf.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+
+const client = new MongoClient(uri, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  }
+});
+
+let db = null;
+
+async function connectDB() {
+  if (!db) {
+    await client.connect();
+    db = client.db('busTracker');
+  }
+  return db;
+}
+
+module.exports = async (req, res) => {
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  try {
+    const database = await connectDB();
+    const locations = database.collection('locations');
+
+    if (req.method === 'POST') {
+      // Update or insert location
+      const { userId, lat, lng, name } = req.body;
+      
+      await locations.updateOne(
+        { userId },
+        { 
+          $set: { 
+            userId, 
+            lat, 
+            lng, 
+            name, 
+            timestamp: new Date() 
+          } 
+        },
+        { upsert: true }
+      );
+
+      res.status(200).json({ success: true });
+    } 
+    else if (req.method === 'GET') {
+      // Get all active locations (last 5 minutes)
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      
+      const activeLocations = await locations
+        .find({ timestamp: { $gte: fiveMinutesAgo } })
+        .toArray();
+
+      res.status(200).json(activeLocations);
+    }
+    else if (req.method === 'DELETE') {
+      // Delete user location
+      const { userId } = req.body;
+      
+      await locations.deleteOne({ userId });
+
+      res.status(200).json({ success: true });
+    }
+    else {
+      res.status(405).json({ error: 'Method not allowed' });
+    }
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ==========================================
+// FILE 4: public/index.html
+// ==========================================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bus Tracker</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" 
+          crossorigin=""/>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            overflow: hidden;
+        }
+
+        .container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .btn-primary {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #059669;
+            transform: translateY(-2px);
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        select {
+            padding: 0.6rem 2rem 0.6rem 1rem;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.9);
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .status {
+            background: rgba(255,255,255,0.2);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .status.active {
+            background: #10b981;
+        }
+
+        #map {
+            flex: 1;
+            width: 100%;
+        }
+
+        .info-panel {
+            background: white;
+            padding: 1rem;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+
+        .info-item {
+            margin: 0.5rem 0;
+            font-size: 0.9rem;
+        }
+
+        .info-item strong {
+            color: #667eea;
+        }
+
+        .user-id {
+            background: rgba(102, 126, 234, 0.1);
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            font-family: monospace;
+            margin-left: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            z-index: 2000;
+            text-align: center;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 640px) {
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .btn, select {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div>Loading map...</div>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>🚌 Live Bus Tracker</h1>
+            <div class="controls">
+                <button id="shareBtn" class="btn btn-primary">Share My Location</button>
+                <button id="stopBtn" class="btn btn-danger" disabled>Stop Sharing</button>
+                <select id="trackSelect">
+                    <option value="">Select person to track</option>
+                </select>
+                <div class="status" id="status">Inactive</div>
+            </div>
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.9;">
+                Your ID: <span class="user-id" id="myId"></span>
+            </div>
+        </div>
+
+        <div id="map"></div>
+
+        <div class="info-panel">
+            <div class="info-item">
+                <strong>Distance:</strong> <span id="distance">--</span>
+            </div>
+            <div class="info-item">
+                <strong>Your Location:</strong> <span id="myLocation">Not sharing</span>
+            </div>
+            <div class="info-item">
+                <strong>Tracking:</strong> <span id="trackingInfo">No one</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" 
+            crossorigin=""></script>
+    <script>
+        // Wait for Leaflet to load
+        window.addEventListener('load', initApp);
+
+        function initApp() {
+            document.getElementById('loading').style.display = 'none';
+
+            // API endpoint (will work on Vercel)
+            const API_URL = '/api/location';
+
+            // Bus SVG Icon
+            const busIconSVG = `
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="4" y="4" width="16" height="16" rx="2" fill="#667eea" stroke="#fff" stroke-width="1.5"/>
+                    <rect x="6" y="6" width="5" height="4" rx="1" fill="#fff"/>
+                    <rect x="13" y="6" width="5" height="4" rx="1" fill="#fff"/>
+                    <rect x="6" y="12" width="12" height="3" rx="0.5" fill="#fff"/>
+                    <circle cx="8" cy="18" r="1.5" fill="#fff"/>
+                    <circle cx="16" cy="18" r="1.5" fill="#fff"/>
+                </svg>
+            `;
+
+            const userIconSVG = `
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="12" cy="12" r="10" fill="#10b981" stroke="#fff" stroke-width="2"/>
+                    <circle cx="12" cy="12" r="4" fill="#fff"/>
+                </svg>
+            `;
+
+            // Generate unique user ID
+            const MY_USER_ID = 'user_' + Math.random().toString(36).substr(2, 9);
+            document.getElementById('myId').textContent = MY_USER_ID;
+
+            // Map initialization
+            const map = L.map('map').setView([10.0889, 76.3531], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(map);
+
+            // Custom icons
+            const busIcon = L.divIcon({
+                html: busIconSVG,
+                className: 'bus-marker',
+                iconSize: [40, 40],
+                iconAnchor: [20, 40]
+            });
+
+            const userIcon = L.divIcon({
+                html: userIconSVG,
+                className: 'user-marker',
+                iconSize: [30, 30],
+                iconAnchor: [15, 30]
+            });
+
+            // State
+            let myMarker = null;
+            let trackedMarker = null;
+            let routeLine = null;
+            let trackingInterval = null;
+            let locationWatchId = null;
+            let updateInterval = null;
+            let isSharing = false;
+            let currentTrackedId = null;
+            let myCurrentPosition = null;
+
+            // UI Elements
+            const shareBtn = document.getElementById('shareBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const trackSelect = document.getElementById('trackSelect');
+            const status = document.getElementById('status');
+            const distanceEl = document.getElementById('distance');
+            const myLocationEl = document.getElementById('myLocation');
+            const trackingInfoEl = document.getElementById('trackingInfo');
+
+            // Calculate distance between two points (Haversine formula)
+            function calculateDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371; // Earth's radius in km
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLon = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                         Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                         Math.sin(dLon/2) * Math.sin(dLon/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                return R * c;
+            }
+
+            // Update location display
+            function updateLocationDisplay(lat, lon) {
+                myLocationEl.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+            }
+
+            // Draw route line with arrow
+            function updateRoute(myPos, trackedPos) {
+                if (routeLine) {
+                    map.removeLayer(routeLine);
+                }
+
+                const latlngs = [
+                    [myPos.lat, myPos.lng],
+                    [trackedPos.lat, trackedPos.lng]
+                ];
+
+                routeLine = L.polyline(latlngs, {
+                    color: '#667eea',
+                    weight: 4,
+                    opacity: 0.7,
+                    dashArray: '10, 10'
+                }).addTo(map);
+
+                // Add arrow decorator
+                const arrowIcon = L.divIcon({
+                    html: '▶',
+                    className: 'arrow-icon',
+                    iconSize: [20, 20]
+                });
+
+                const distance = calculateDistance(myPos.lat, myPos.lng, trackedPos.lat, trackedPos.lng);
+                distanceEl.textContent = `${distance.toFixed(2)} km`;
+
+                // Fit bounds to show both markers
+                const bounds = L.latLngBounds(latlngs);
+                map.fitBounds(bounds, { padding: [80, 80] });
+            }
+
+            // Send location to server
+            async function sendLocation(lat, lng) {
+                try {
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            userId: MY_USER_ID,
+                            lat,
+                            lng,
+                            name: `Bus ${MY_USER_ID.substr(-4)}`
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to send location');
+                    }
+                } catch (error) {
+                    console.error('Error sending location:', error);
+                }
+            }
+
+            // Get all users from server
+            async function fetchUsers() {
+                try {
+                    const response = await fetch(API_URL);
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch users');
+                    }
+                    const users = await response.json();
+                    return users;
+                } catch (error) {
+                    console.error('Error fetching users:', error);
+                    return [];
+                }
+            }
+
+            // Start sharing location
+            function startSharing() {
+                if (!navigator.geolocation) {
+                    alert('Geolocation is not supported by your browser');
+                    return;
+                }
+
+                locationWatchId = navigator.geolocation.watchPosition(
+                    async (position) => {
+                        const { latitude, longitude } = position.coords;
+                        myCurrentPosition = { lat: latitude, lng: longitude };
+
+                        // Send to server
+                        await sendLocation(latitude, longitude);
+
+                        // Update my marker
+                        if (myMarker) {
+                            myMarker.setLatLng([latitude, longitude]);
+                        } else {
+                            myMarker = L.marker([latitude, longitude], { icon: userIcon })
+                                .addTo(map)
+                                .bindPopup('You (Your Location)');
+                            map.setView([latitude, longitude], 15);
+                        }
+
+                        updateLocationDisplay(latitude, longitude);
+
+                        // Update route if tracking someone
+                        if (currentTrackedId && trackedMarker) {
+                            updateRoute(
+                                { lat: latitude, lng: longitude },
+                                trackedMarker.getLatLng()
+                            );
+                        }
+                    },
+                    (error) => {
+                        console.error('Location error:', error);
+                        alert('Unable to get your location. Please enable location services.');
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        maximumAge: 0,
+                        timeout: 5000
+                    }
+                );
+
+                isSharing = true;
+                shareBtn.disabled = true;
+                stopBtn.disabled = false;
+                status.textContent = 'Sharing Location';
+                status.classList.add('active');
+
+                // Start periodic user list updates
+                updateUserList();
+                updateInterval = setInterval(updateUserList, 3000);
+            }
+
+            // Stop sharing location
+            async function stopSharing() {
+                if (locationWatchId) {
+                    navigator.geolocation.clearWatch(locationWatchId);
+                    locationWatchId = null;
+                }
+
+                if (updateInterval) {
+                    clearInterval(updateInterval);
+                    updateInterval = null;
+                }
+
+                // Remove from server
+                try {
+                    await fetch(API_URL, {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ userId: MY_USER_ID })
+                    });
+                } catch (error) {
+                    console.error('Error removing location:', error);
+                }
+
+                if (myMarker) {
+                    map.removeLayer(myMarker);
+                    myMarker = null;
+                }
+
+                isSharing = false;
+                shareBtn.disabled = false;
+                stopBtn.disabled = true;
+                status.textContent = 'Inactive';
+                status.classList.remove('active');
+                myLocationEl.textContent = 'Not sharing';
+                myCurrentPosition = null;
+
+                await updateUserList();
+            }
+
+            // Update user list in dropdown
+            async function updateUserList() {
+                const users = await fetchUsers();
+                const otherUsers = users.filter(u => u.userId !== MY_USER_ID);
+                const currentValue = trackSelect.value;
+                
+                trackSelect.innerHTML = '<option value="">Select person to track</option>';
+                otherUsers.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.userId;
+                    option.textContent = user.name || user.userId;
+                    trackSelect.appendChild(option);
+                });
+
+                // Restore selection if still valid
+                if (currentValue && otherUsers.some(u => u.userId === currentValue)) {
+                    trackSelect.value = currentValue;
+                }
+
+                // Update tracked user position if tracking
+                if (currentTrackedId) {
+                    const trackedUser = users.find(u => u.userId === currentTrackedId);
+                    if (trackedUser) {
+                        updateTrackedMarker(trackedUser);
+                    } else {
+                        trackingInfoEl.textContent = 'User offline';
+                    }
+                }
+            }
+
+            // Update tracked marker position
+            function updateTrackedMarker(user) {
+                trackingInfoEl.textContent = user.name || user.userId;
+
+                const newPos = [user.lat, user.lng];
+
+                if (trackedMarker) {
+                    trackedMarker.setLatLng(newPos);
+                } else {
+                    trackedMarker = L.marker(newPos, { icon: busIcon })
+                        .addTo(map)
+                        .bindPopup(user.name || user.userId);
+                }
+
+                // Update route if sharing location
+                if (myCurrentPosition) {
+                    updateRoute(myCurrentPosition, { lat: user.lat, lng: user.lng });
+                } else {
+                    map.setView(newPos, 15);
+                }
+            }
+
+            // Track selected user
+            function trackUser(userId) {
+                if (trackingInterval) {
+                    clearInterval(trackingInterval);
+                }
+
+                if (!userId) {
+                    currentTrackedId = null;
+                    if (trackedMarker) {
+                        map.removeLayer(trackedMarker);
+                        trackedMarker = null;
+                    }
+                    if (routeLine) {
+                        map.removeLayer(routeLine);
+                        routeLine = null;
+                    }
+                    trackingInfoEl.textContent = 'No one';
+                    distanceEl.textContent = '--';
+                    return;
+                }
+
+                currentTrackedId = userId;
+                
+                // Update immediately
+                updateUserList();
+                
+                // Then update every 2 seconds
+                trackingInterval = setInterval(updateUserList, 2000);
+            }
+
+            // Event listeners
+            shareBtn.addEventListener('click', startSharing);
+            stopBtn.addEventListener('click', stopSharing);
+            trackSelect.addEventListener('change', (e) => trackUser(e.target.value));
+
+            // Initial user list load
+            updateUserList();
+            
+            // Periodic updates even when not sharing (to see other users)
+            setInterval(updateUserList, 5000);
+        }
+    </script>
+</body>
+</html>
