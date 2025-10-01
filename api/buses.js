@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
 
     if (req.method === 'POST') {
       // Register new bus
-      const { busNumber, routeNumber, depot, driverId } = req.body;
+      const { busNumber, routeNumber, routeName, depot, driverId } = req.body;
       
       const busId = `KSRTC_${busNumber}`;
       
@@ -47,9 +47,11 @@ module.exports = async (req, res) => {
             busId,
             busNumber,
             routeNumber,
+            routeName: routeName || routeNumber,
             depot,
             driverId,
-            registeredAt: new Date()
+            registeredAt: new Date(),
+            updatedAt: new Date()
           } 
         },
         { upsert: true }

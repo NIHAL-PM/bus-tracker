@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
           integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" 
           crossorigin=""/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
     <link rel="manifest" href="/manifest.json">
     <style>
         * {
@@ -56,6 +57,35 @@
             margin-top: 0.5rem;
         }
 
+        .search-container {
+            display: flex;
+            gap: 0.5rem;
+            flex: 1;
+            min-width: 300px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .search-input {
+            flex: 1;
+            min-width: 150px;
+            padding: 0.6rem 1rem;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.9);
+            font-size: 0.9rem;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: rgba(255,255,255,0.8);
+            background: white;
+        }
+
+        .search-input::placeholder {
+            color: #999;
+        }
+
         .btn {
             padding: 0.6rem 1.2rem;
             border: none;
@@ -94,6 +124,30 @@
             background: rgba(255,255,255,0.9);
             font-size: 0.9rem;
             cursor: pointer;
+        }
+
+        .filter-badge {
+            background: rgba(255,255,255,0.3);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .clear-filter {
+            background: rgba(255,255,255,0.5);
+            border: none;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .clear-filter:hover {
+            background: rgba(255,255,255,0.8);
         }
 
         .status {
@@ -217,13 +271,36 @@
         <div class="header">
             <h1><span class="logo">🚌</span> KSRTC Live Bus Tracker</h1>
             <div class="controls">
+                <div class="search-container">
+                    <input 
+                        type="text" 
+                        id="fromStop" 
+                        class="search-input" 
+                        placeholder="From (e.g., Mattannur)"
+                        list="stopsList"
+                    />
+                    <span style="color: white; font-size: 1.2rem; padding: 0 0.5rem;">→</span>
+                    <input 
+                        type="text" 
+                        id="toStop" 
+                        class="search-input" 
+                        placeholder="To (e.g., Koothparamba)"
+                        list="stopsList"
+                    />
+                    <button id="searchBtn" class="btn btn-primary">Find Buses</button>
+                </div>
+                <datalist id="stopsList"></datalist>
                 <select id="busSelect">
                     <option value="">Select a bus to track</option>
                 </select>
-                <button id="refreshBtn" class="btn btn-primary">Refresh Buses</button>
+                <button id="refreshBtn" class="btn btn-primary">Refresh</button>
                 <button id="driverAppBtn" class="btn btn-secondary" onclick="window.open('/driver.html', '_blank')">Driver App</button>
                 <div class="status" id="status">
                     <span id="busCount">0</span> buses active
+                </div>
+                <div class="filter-badge" id="filterBadge" style="display: none;">
+                    <span id="filterText"></span>
+                    <button class="clear-filter" id="clearFilter">✕</button>
                 </div>
             </div>
         </div>
@@ -249,6 +326,8 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" 
             crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <script src="/route-stops.js"></script>
     <script>
         window.addEventListener('load', initApp);
 
@@ -289,14 +368,205 @@
             let busMarkers = {};
             let selectedBusId = null;
             let updateInterval = null;
+            let allBuses = [];
+            let filteredRoute = null;
+            let fromStop = null;
+            let toStop = null;
+            let routePolylines = {}; // Store route polylines
+            let routingControls = {}; // Store routing machine instances
 
             const busSelect = document.getElementById('busSelect');
             const refreshBtn = document.getElementById('refreshBtn');
+            const searchBtn = document.getElementById('searchBtn');
+            const fromStopInput = document.getElementById('fromStop');
+            const toStopInput = document.getElementById('toStop');
+            const clearFilterBtn = document.getElementById('clearFilter');
+            const filterBadge = document.getElementById('filterBadge');
+            const filterText = document.getElementById('filterText');
             const busCountEl = document.getElementById('busCount');
             const activeBusCountEl = document.getElementById('activeBusCount');
             const lastUpdateEl = document.getElementById('lastUpdate');
             const trackingInfoEl = document.getElementById('trackingInfo');
             const busListEl = document.getElementById('busList');
+
+            // Populate stop list for autocomplete
+            function populateStopsList() {
+                const stopsListEl = document.getElementById('stopsList');
+                const allStops = new Set();
+                
+                if (typeof ROUTE_STOPS !== 'undefined') {
+                    Object.values(ROUTE_STOPS).forEach(route => {
+                        route.stops.forEach(stop => {
+                            allStops.add(stop.name);
+                        });
+                    });
+                }
+                
+                allStops.forEach(stop => {
+                    const option = document.createElement('option');
+                    option.value = stop;
+                    stopsListEl.appendChild(option);
+                });
+            }
+
+            // Initialize stops list
+            populateStopsList();
+
+            // Draw route polylines on map using road routing
+            function drawRoutePolylines() {
+                if (typeof ROUTE_STOPS === 'undefined') return;
+
+                // Clear existing routing controls
+                Object.values(routingControls).forEach(control => {
+                    map.removeControl(control);
+                });
+                routingControls = {};
+
+                // Draw route for each route using Leaflet Routing Machine
+                Object.entries(ROUTE_STOPS).forEach(([routeKey, routeData]) => {
+                    const waypoints = routeData.stops.map(stop => 
+                        L.latLng(stop.lat, stop.lng)
+                    );
+                    
+                    // Create routing control with OSRM for road-following
+                    const routingControl = L.Routing.control({
+                        waypoints: waypoints,
+                        routeWhileDragging: false,
+                        addWaypoints: false,
+                        draggableWaypoints: false,
+                        fitSelectedRoutes: false,
+                        showAlternatives: false,
+                        lineOptions: {
+                            styles: [{
+                                color: '#667eea',
+                                opacity: 0.6,
+                                weight: 4
+                            }],
+                            extendToWaypoints: true,
+                            missingRouteTolerance: 10
+                        },
+                        createMarker: function() { return null; }, // Hide waypoint markers
+                        show: false, // Hide the instruction panel
+                        router: L.Routing.osrmv1({
+                            serviceUrl: 'https://router.project-osrm.org/route/v1'
+                        })
+                    }).addTo(map);
+
+                    // Store route data for ETA calculation
+                    routingControl.on('routesfound', function(e) {
+                        const route = e.routes[0];
+                        routePolylines[routeKey] = {
+                            control: routingControl,
+                            distance: route.summary.totalDistance, // meters
+                            duration: route.summary.totalTime, // seconds
+                            coordinates: route.coordinates,
+                            routeData: routeData
+                        };
+                    });
+
+                    routingControls[routeKey] = routingControl;
+                });
+            }
+
+            // Calculate ETA for a bus to reach a specific stop
+            function calculateETA(busLocation, targetStop, routeKey) {
+                if (!busLocation || !targetStop || !routePolylines[routeKey]) {
+                    return null;
+                }
+
+                const busLat = busLocation.latitude;
+                const busLng = busLocation.longitude;
+                const busSpeed = busLocation.speed || 30; // km/h, default 30 if not available
+
+                // Calculate straight-line distance (Haversine formula)
+                const R = 6371; // Earth's radius in km
+                const dLat = (targetStop.lat - busLat) * Math.PI / 180;
+                const dLon = (targetStop.lng - busLng) * Math.PI / 180;
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(busLat * Math.PI / 180) * Math.cos(targetStop.lat * Math.PI / 180) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                const distance = R * c; // km
+
+                // Adjust for road distance (typically 1.3-1.5x straight-line)
+                const roadDistance = distance * 1.4;
+                
+                // Calculate ETA in minutes
+                const etaMinutes = (roadDistance / busSpeed) * 60;
+                
+                return {
+                    distance: roadDistance,
+                    eta: Math.round(etaMinutes),
+                    speed: busSpeed
+                };
+            }
+
+            // Format ETA display
+            function formatETA(etaData) {
+                if (!etaData) return 'N/A';
+                
+                const minutes = etaData.eta;
+                if (minutes < 1) return 'Arriving now';
+                if (minutes < 60) return `${minutes} min`;
+                
+                const hours = Math.floor(minutes / 60);
+                const mins = minutes % 60;
+                return `${hours}h ${mins}m`;
+            }
+
+            // Highlight specific route polyline
+            function highlightRoutePolyline(routeKey) {
+                // Reset all routes to default style
+                Object.entries(routingControls).forEach(([key, control]) => {
+                    control.getPlan().setWaypoints(control.getWaypoints());
+                    control.options.lineOptions.styles[0] = {
+                        color: '#667eea',
+                        weight: 4,
+                        opacity: 0.6
+                    };
+                });
+
+                // Highlight selected route
+                if (routeKey && routingControls[routeKey]) {
+                    routingControls[routeKey].options.lineOptions.styles[0] = {
+                        color: '#10b981',
+                        weight: 6,
+                        opacity: 0.9
+                    };
+                }
+            }
+
+            // Show only specific route polyline
+            function showOnlyRoutePolyline(routeKey) {
+                Object.entries(routingControls).forEach(([key, control]) => {
+                    if (routeKey && key !== routeKey) {
+                        control.options.lineOptions.styles[0] = {
+                            color: '#667eea',
+                            weight: 2,
+                            opacity: 0.2
+                        };
+                    } else {
+                        control.options.lineOptions.styles[0] = {
+                            color: '#667eea',
+                            weight: 4,
+                            opacity: 0.6
+                        };
+                    }
+                });
+
+                if (routeKey && routingControls[routeKey]) {
+                    routingControls[routeKey].options.lineOptions.styles[0] = {
+                        color: '#10b981',
+                        weight: 6,
+                        opacity: 0.9
+                    };
+                }
+            }
+
+            // Draw route polylines after map loads
+            setTimeout(() => {
+                drawRoutePolylines();
+            }, 1000);
 
             // Calculate distance between two points
             function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -324,16 +594,190 @@
                     }
                     const buses = await response.json();
                     
-                    updateBusMarkers(buses);
-                    updateBusSelect(buses);
-                    updateBusList(buses);
-                    updateStats(buses);
+                    allBuses = buses;
+                    let displayBuses = buses;
+                    
+                    // Apply stop-based filtering if both stops selected
+                    if (fromStop && toStop) {
+                        displayBuses = filterBusesByStops(buses, fromStop, toStop);
+                    } 
+                    // Apply route-based filtering if only route term
+                    else if (filteredRoute) {
+                        displayBuses = filterBusesByRoute(buses, filteredRoute);
+                    }
+                    
+                    updateBusMarkers(displayBuses);
+                    updateBusSelect(displayBuses);
+                    updateBusList(displayBuses);
+                    updateStats(displayBuses, buses.length);
 
                     lastUpdateEl.textContent = formatTime(new Date());
                 } catch (error) {
                     console.error('Error fetching buses:', error);
                 }
             }
+
+            // Filter buses by route search
+            function filterBusesByRoute(buses, searchTerm) {
+                const term = searchTerm.toLowerCase().trim();
+                return buses.filter(bus => {
+                    const routeNumber = (bus.routeNumber || '').toLowerCase();
+                    const routeName = (bus.routeName || '').toLowerCase();
+                    const busNumber = (bus.busNumber || bus.busId || '').toLowerCase();
+                    
+                    // Match route number directly
+                    if (routeNumber.includes(term)) {
+                        return true;
+                    }
+                    
+                    // Match route name
+                    if (routeName.includes(term)) {
+                        return true;
+                    }
+                    
+                    // Match bus number
+                    if (busNumber.includes(term)) {
+                        return true;
+                    }
+                    
+                    // Parse route names like "Iritty to Thalassery" or "TVM-EKM"
+                    const routeParts = term.split(/\s+to\s+|\s*-\s*/i);
+                    if (routeParts.length >= 2) {
+                        const origin = routeParts[0].toLowerCase();
+                        const destination = routeParts[routeParts.length - 1].toLowerCase();
+                        
+                        return (routeNumber.includes(origin) && routeNumber.includes(destination)) ||
+                               (routeName.includes(origin) && routeName.includes(destination));
+                    }
+                    
+                    return false;
+                });
+            }
+
+            // Advanced: Filter buses by origin-destination stops
+            function filterBusesByStops(buses, fromStopName, toStopName) {
+                if (!fromStopName || !toStopName || typeof ROUTE_STOPS === 'undefined') {
+                    return buses;
+                }
+
+                const from = fromStopName.toLowerCase().trim();
+                const to = toStopName.toLowerCase().trim();
+                let matchedRouteKey = null;
+
+                const filtered = buses.filter(bus => {
+                    const routeNumber = (bus.routeNumber || '').toLowerCase();
+                    const routeName = (bus.routeName || '').toLowerCase();
+
+                    // Find matching route in ROUTE_STOPS
+                    for (const [routeKey, routeData] of Object.entries(ROUTE_STOPS)) {
+                        // Check if this bus matches this route
+                        if (!routeNumber.includes(routeKey.toLowerCase()) && 
+                            !routeName.includes(routeData.name.toLowerCase())) {
+                            continue;
+                        }
+
+                        // Find indices of from and to stops
+                        const fromIndex = routeData.stops.findIndex(stop => 
+                            stop.name.toLowerCase().includes(from) || from.includes(stop.name.toLowerCase())
+                        );
+                        const toIndex = routeData.stops.findIndex(stop => 
+                            stop.name.toLowerCase().includes(to) || to.includes(stop.name.toLowerCase())
+                        );
+
+                        // If both stops found on this route
+                        if (fromIndex !== -1 && toIndex !== -1) {
+                            // Check if bus travels from 'from' to 'to' (in either direction)
+                            if (fromIndex < toIndex || fromIndex > toIndex) {
+                                matchedRouteKey = routeKey;
+                                return true;
+                            }
+                        }
+                    }
+
+                    // Fallback: basic text matching
+                    const fullRoute = `${routeNumber} ${routeName}`.toLowerCase();
+                    return fullRoute.includes(from) && fullRoute.includes(to);
+                });
+
+                // Highlight the matched route polyline
+                if (matchedRouteKey) {
+                    showOnlyRoutePolyline(matchedRouteKey);
+                } else {
+                    // Reset routes if no specific route matched
+                    Object.entries(routingControls).forEach(([key, control]) => {
+                        control.options.lineOptions.styles[0] = {
+                            color: '#667eea',
+                            weight: 4,
+                            opacity: 0.6
+                        };
+                    });
+                }
+
+                return filtered;
+            }
+
+            // Search button handler
+            searchBtn.addEventListener('click', () => {
+                const from = fromStopInput.value.trim();
+                const to = toStopInput.value.trim();
+                
+                if (from && to) {
+                    fromStop = from;
+                    toStop = to;
+                    filteredRoute = `${from} to ${to}`;
+                    filterBadge.style.display = 'flex';
+                    filterText.textContent = `${from} → ${to}`;
+                    fetchBuses();
+                } else if (from || to) {
+                    // Single stop search
+                    const searchTerm = from || to;
+                    filteredRoute = searchTerm;
+                    fromStop = from;
+                    toStop = to;
+                    filterBadge.style.display = 'flex';
+                    filterText.textContent = `Via: ${searchTerm}`;
+                    fetchBuses();
+                } else {
+                    alert('Please enter at least one stop');
+                }
+            });
+
+            // Enter key in search boxes
+            fromStopInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    searchBtn.click();
+                }
+            });
+
+            toStopInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    searchBtn.click();
+                }
+            });
+
+            // Clear filter button
+            clearFilterBtn.addEventListener('click', () => {
+                filteredRoute = null;
+                fromStop = null;
+                toStop = null;
+                fromStopInput.value = '';
+                toStopInput.value = '';
+                filterBadge.style.display = 'none';
+                
+                // Reset all routes to default
+                Object.entries(routingControls).forEach(([key, control]) => {
+                    control.options.lineOptions.styles[0] = {
+                        color: '#667eea',
+                        weight: 4,
+                        opacity: 0.6
+                    };
+                });
+                
+                fetchBuses();
+            });
+
+            // Fetch and update bus locations (old function removed)
+            // async function fetchBuses() { ... }
 
             // Update bus markers on map
             function updateBusMarkers(buses) {
@@ -379,14 +823,16 @@
 
             // Create popup content for bus
             function createPopupContent(bus) {
+                const routeDisplay = bus.routeName || bus.routeNumber || 'N/A';
                 return `
                     <div style="min-width: 200px;">
                         <h3 style="margin: 0 0 0.5rem; color: #667eea;">
                             🚌 ${bus.busNumber || bus.busId}
                         </h3>
-                        <p style="margin: 0.3rem 0;"><strong>Route:</strong> ${bus.routeNumber || 'N/A'}</p>
+                        <p style="margin: 0.3rem 0;"><strong>Route:</strong> ${routeDisplay}</p>
                         <p style="margin: 0.3rem 0;"><strong>Speed:</strong> ${bus.speed || 0} km/h</p>
                         <p style="margin: 0.3rem 0;"><strong>Driver:</strong> ${bus.driverId || 'Unknown'}</p>
+                        ${bus.accuracy ? `<p style="margin: 0.3rem 0; font-size: 0.8rem;"><strong>Accuracy:</strong> ±${Math.round(bus.accuracy)}m</p>` : ''}
                         <p style="margin: 0.3rem 0; font-size: 0.8rem; color: #666;">
                             <strong>Last update:</strong> ${formatTime(bus.timestamp)}
                         </p>
@@ -402,7 +848,8 @@
                 buses.forEach(bus => {
                     const option = document.createElement('option');
                     option.value = bus.busId;
-                    option.textContent = `${bus.busNumber || bus.busId} - ${bus.routeNumber || 'N/A'}`;
+                    const routeDisplay = bus.routeName || bus.routeNumber || 'N/A';
+                    option.textContent = `${bus.busNumber || bus.busId} - ${routeDisplay}`;
                     busSelect.appendChild(option);
                 });
 
@@ -424,16 +871,18 @@
                     const card = document.createElement('div');
                     card.className = 'bus-card';
                     card.style.cursor = 'pointer';
+                    const routeDisplay = bus.routeName || bus.routeNumber || 'N/A';
                     card.innerHTML = `
                         <h3>🚌 ${bus.busNumber || bus.busId}</h3>
-                        <p><strong>Route:</strong> ${bus.routeNumber || 'N/A'}</p>
+                        <p><strong>Route:</strong> ${routeDisplay}</p>
                         <p><strong>Speed:</strong> ${bus.speed || 0} km/h | <strong>Driver:</strong> ${bus.driverId || 'Unknown'}</p>
+                        ${bus.accuracy ? `<p style="font-size: 0.75rem; color: #888;">Accuracy: ±${Math.round(bus.accuracy)}m</p>` : ''}
                         <p style="font-size: 0.75rem; color: #888;">${formatTime(bus.timestamp)}</p>
                     `;
                     card.onclick = () => {
                         selectedBusId = bus.busId;
                         busSelect.value = bus.busId;
-                        trackingInfoEl.textContent = `${bus.busNumber} - ${bus.routeNumber}`;
+                        trackingInfoEl.textContent = `${bus.busNumber} - ${routeDisplay}`;
                         map.setView([bus.lat, bus.lng], 15);
                         busMarkers[bus.busId].openPopup();
                     };
@@ -442,9 +891,13 @@
             }
 
             // Update statistics
-            function updateStats(buses) {
+            function updateStats(buses, totalBuses) {
                 busCountEl.textContent = buses.length;
-                activeBusCountEl.textContent = buses.length;
+                activeBusCountEl.textContent = totalBuses || buses.length;
+                
+                if (filteredRoute && buses.length !== totalBuses) {
+                    busCountEl.textContent = `${buses.length}/${totalBuses}`;
+                }
             }
 
             // Track selected bus

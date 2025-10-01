@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="KSRTC Driver">
+    <meta name="theme-color" content="#667eea">
     <title>KSRTC Driver - Location Tracker</title>
     <link rel="manifest" href="/manifest.json">
     <style>
@@ -105,6 +110,52 @@
             justify-content: space-between;
             margin: 0.5rem 0;
         }
+        .pulse {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #10b981;
+            display: inline-block;
+            margin-right: 0.5rem;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+            }
+        }
+        .tracking-indicator {
+            display: none;
+            align-items: center;
+            background: #d1fae5;
+            color: #065f46;
+            padding: 0.8rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+        .tracking-indicator.active {
+            display: flex;
+        }
+        .warning {
+            background: #fef3c7;
+            color: #92400e;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+            border-left: 4px solid #f59e0b;
+        }
+        .warning strong {
+            display: block;
+            margin-bottom: 0.5rem;
+        }
         .logo {
             text-align: center;
             font-size: 3rem;
@@ -136,6 +187,25 @@
         <div class="form-group">
             <label>Route Number</label>
             <input type="text" id="routeNumber" placeholder="e.g., TVM-EKM-001">
+            <small style="color: #666; font-size: 0.8rem; margin-top: 0.3rem; display: block;">
+                Format: Origin-Destination-Number or full route name
+            </small>
+        </div>
+
+        <div class="form-group">
+            <label>Route Name (Optional)</label>
+            <input type="text" id="routeName" placeholder="e.g., Iritty to Thalassery via Peravoor">
+            <small style="color: #666; font-size: 0.8rem; margin-top: 0.3rem; display: block;">
+                Full route with stops (e.g., "Iritty to Thalassery" or "IRT-TLY")
+            </small>
+        </div>
+
+        <div class="form-group">
+            <label>Current Stop / Starting Point (Optional)</label>
+            <input type="text" id="currentStop" placeholder="e.g., Mattannur">
+            <small style="color: #666; font-size: 0.8rem; margin-top: 0.3rem; display: block;">
+                Where you're starting or your current location stop
+            </small>
         </div>
 
         <div class="form-group">
@@ -166,6 +236,20 @@
             Status: Not Tracking
         </div>
 
+        <div class="tracking-indicator" id="trackingIndicator">
+            <span class="pulse"></span>
+            <span>Live tracking active - Updates every 3 seconds</span>
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ Important Instructions:</strong>
+            • Keep this app in the foreground for best tracking<br>
+            • Enable "Location always" in app settings<br>
+            • Disable battery optimization for this app<br>
+            • Keep GPS enabled throughout the journey<br>
+            • Install as PWA (Add to Home Screen) for better performance
+        </div>
+
         <div class="info">
             <div class="info-item">
                 <span>Last Update:</span>
@@ -194,6 +278,9 @@
         let isTracking = false;
         let updateCount = 0;
         let busId = null;
+        let wakeLock = null;
+        let lastPosition = null;
+        let sendInterval = null;
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -202,18 +289,136 @@
         const updateCountEl = document.getElementById('updateCount');
         const speedEl = document.getElementById('speed');
         const coordsEl = document.getElementById('coords');
+        const trackingIndicatorEl = document.getElementById('trackingIndicator');
 
         startBtn.addEventListener('click', startTracking);
         stopBtn.addEventListener('click', stopTracking);
 
+        // Register service worker for background tracking
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').then(registration => {
+                console.log('Service Worker registered:', registration);
+            }).catch(error => {
+                console.error('Service Worker registration failed:', error);
+            });
+        }
+
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('Wake Lock acquired');
+                    
+                    wakeLock.addEventListener('release', () => {
+                        console.log('Wake Lock released');
+                    });
+                }
+            } catch (err) {
+                console.error('Wake Lock error:', err);
+            }
+        }
+
+        async function releaseWakeLock() {
+            if (wakeLock !== null) {
+                try {
+                    await wakeLock.release();
+                    wakeLock = null;
+                } catch (err) {
+                    console.error('Error releasing wake lock:', err);
+                }
+            }
+        }
+
+        async function sendLocation(position) {
+            const { latitude, longitude, speed, heading, accuracy } = position.coords;
+            
+            // Calculate speed from position change if device doesn't provide it
+            let calculatedSpeed = 0;
+            if (lastPosition && speed === null) {
+                const timeDiff = (position.timestamp - lastPosition.timestamp) / 1000; // seconds
+                const distance = calculateDistance(
+                    lastPosition.coords.latitude,
+                    lastPosition.coords.longitude,
+                    latitude,
+                    longitude
+                );
+                calculatedSpeed = (distance / timeDiff) * 3600; // km/h
+            }
+
+            const finalSpeed = speed ? (speed * 3.6).toFixed(1) : calculatedSpeed.toFixed(1);
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        busId,
+                        lat: latitude,
+                        lng: longitude,
+                        speed: finalSpeed,
+                        heading: heading || calculateHeading(lastPosition, position),
+                        driverId: document.getElementById('driverId').value,
+                        routeNumber: document.getElementById('routeNumber').value || document.getElementById('routeName').value,
+                        busNumber: document.getElementById('busNumber').value,
+                        routeName: document.getElementById('routeName').value,
+                        accuracy: accuracy
+                    })
+                });
+
+                if (response.ok) {
+                    updateCount++;
+                    updateCountEl.textContent = updateCount;
+                    lastUpdateEl.textContent = new Date().toLocaleTimeString();
+                    speedEl.textContent = finalSpeed + ' km/h';
+                    coordsEl.textContent = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+                    
+                    lastPosition = position;
+                }
+            } catch (error) {
+                console.error('Error sending location:', error);
+            }
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // Earth's radius in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                     Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function calculateHeading(oldPos, newPos) {
+            if (!oldPos) return 0;
+            
+            const lat1 = oldPos.coords.latitude * Math.PI / 180;
+            const lat2 = newPos.coords.latitude * Math.PI / 180;
+            const dLon = (newPos.coords.longitude - oldPos.coords.longitude) * Math.PI / 180;
+            
+            const y = Math.sin(dLon) * Math.cos(lat2);
+            const x = Math.cos(lat1) * Math.sin(lat2) -
+                     Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+            const bearing = Math.atan2(y, x) * 180 / Math.PI;
+            
+            return (bearing + 360) % 360;
+        }
+
         async function startTracking() {
             const busNumber = document.getElementById('busNumber').value;
             const routeNumber = document.getElementById('routeNumber').value;
+            const routeName = document.getElementById('routeName').value;
             const driverId = document.getElementById('driverId').value;
             const depot = document.getElementById('depot').value;
 
             if (!busNumber) {
                 alert('Please enter bus number');
+                return;
+            }
+
+            if (!routeNumber && !routeName) {
+                alert('Please enter route number or route name');
                 return;
             }
 
@@ -224,68 +429,84 @@
                 return;
             }
 
-            // Register bus
+            // Request wake lock to keep screen on
+            await requestWakeLock();
+
+            // Request notification permission for background tracking
+            if ('Notification' in window && Notification.permission === 'default') {
+                await Notification.requestPermission();
+            }
+
+            // Create combined route information
+            const fullRoute = routeName || routeNumber;
+
+            // Register bus with route info
             try {
                 await fetch('/api/buses', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ busNumber, routeNumber, depot, driverId })
+                    body: JSON.stringify({ 
+                        busNumber, 
+                        routeNumber: routeNumber || routeName,
+                        routeName: fullRoute,
+                        depot, 
+                        driverId 
+                    })
                 });
             } catch (error) {
                 console.error('Error registering bus:', error);
             }
 
+            // Use high accuracy geolocation with continuous tracking
             watchId = navigator.geolocation.watchPosition(
                 async (position) => {
-                    const { latitude, longitude, speed, heading } = position.coords;
-
-                    try {
-                        await fetch(API_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                busId,
-                                lat: latitude,
-                                lng: longitude,
-                                speed: speed ? (speed * 3.6).toFixed(1) : 0, // m/s to km/h
-                                heading: heading || 0,
-                                driverId,
-                                routeNumber,
-                                busNumber
-                            })
-                        });
-
-                        updateCount++;
-                        updateCountEl.textContent = updateCount;
-                        lastUpdateEl.textContent = new Date().toLocaleTimeString();
-                        speedEl.textContent = speed ? (speed * 3.6).toFixed(1) + ' km/h' : '0 km/h';
-                        coordsEl.textContent = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-                    } catch (error) {
-                        console.error('Error sending location:', error);
-                    }
+                    await sendLocation(position);
                 },
                 (error) => {
                     console.error('Location error:', error);
-                    alert('Error getting location: ' + error.message);
+                    if (error.code === error.PERMISSION_DENIED) {
+                        alert('Location permission denied. Please enable location services.');
+                        stopTracking();
+                    } else if (error.code === error.POSITION_UNAVAILABLE) {
+                        alert('Location unavailable. Please check your GPS settings.');
+                    }
                 },
                 {
                     enableHighAccuracy: true,
                     maximumAge: 0,
-                    timeout: 5000
+                    timeout: 10000,
+                    distanceFilter: 5 // Only update if moved 5 meters
                 }
             );
+
+            // Also send periodic updates every 3 seconds as backup
+            sendInterval = setInterval(async () => {
+                if (isTracking && lastPosition) {
+                    await sendLocation(lastPosition);
+                }
+            }, 3000);
 
             isTracking = true;
             startBtn.disabled = true;
             stopBtn.disabled = false;
             statusEl.className = 'status active';
             statusEl.textContent = `Status: Tracking Bus ${busNumber}`;
+            trackingIndicatorEl.classList.add('active');
 
             // Disable form inputs
             document.getElementById('busNumber').disabled = true;
             document.getElementById('routeNumber').disabled = true;
+            document.getElementById('routeName').disabled = true;
             document.getElementById('driverId').disabled = true;
             document.getElementById('depot').disabled = true;
+
+            // Show notification that tracking started
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification('KSRTC Tracker', {
+                    body: `Tracking started for bus ${busNumber}`,
+                    icon: '/manifest.json'
+                });
+            }
         }
 
         async function stopTracking() {
@@ -293,6 +514,14 @@
                 navigator.geolocation.clearWatch(watchId);
                 watchId = null;
             }
+
+            if (sendInterval) {
+                clearInterval(sendInterval);
+                sendInterval = null;
+            }
+
+            // Release wake lock
+            await releaseWakeLock();
 
             // Remove from server
             if (busId) {
@@ -308,16 +537,27 @@
             }
 
             isTracking = false;
+            lastPosition = null;
             startBtn.disabled = false;
             stopBtn.disabled = true;
             statusEl.className = 'status inactive';
             statusEl.textContent = 'Status: Not Tracking';
+            trackingIndicatorEl.classList.remove('active');
 
             // Enable form inputs
             document.getElementById('busNumber').disabled = false;
             document.getElementById('routeNumber').disabled = false;
+            document.getElementById('routeName').disabled = false;
             document.getElementById('driverId').disabled = false;
             document.getElementById('depot').disabled = false;
+
+            // Show notification that tracking stopped
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification('KSRTC Tracker', {
+                    body: 'Tracking stopped',
+                    icon: '/manifest.json'
+                });
+            }
         }
 
         // Prevent accidental page close
@@ -328,17 +568,25 @@
             }
         });
 
-        // Keep screen awake (if supported)
-        if ('wakeLock' in navigator) {
-            let wakeLock = null;
-            startBtn.addEventListener('click', async () => {
-                try {
-                    wakeLock = await navigator.wakeLock.request('screen');
-                } catch (err) {
-                    console.log('Wake Lock not supported');
-                }
-            });
-        }
+        // Re-acquire wake lock when page becomes visible
+        document.addEventListener('visibilitychange', async () => {
+            if (isTracking && !document.hidden && wakeLock === null) {
+                await requestWakeLock();
+            }
+        });
+
+        // Handle page focus/blur for battery optimization
+        window.addEventListener('blur', () => {
+            if (isTracking) {
+                console.log('App in background, continuing tracking...');
+            }
+        });
+
+        window.addEventListener('focus', () => {
+            if (isTracking) {
+                console.log('App in foreground');
+            }
+        });
     </script>
 </body>
 </html>

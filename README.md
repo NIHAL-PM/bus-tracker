@@ -4,19 +4,24 @@ A complete, production-ready bus tracking system for KSRTC (Kerala State Road Tr
 
 ## ✨ Features
 
-- ✅ **Real-time GPS tracking** - Live location updates every few seconds
+- ✅ **Real-time GPS tracking** - Live location updates every 3 seconds
+- ✅ **Stop-based search** - Find buses between any two stops (e.g., "Mattannur to Koothparamba") ← NEW!
+- ✅ **Intelligent routing** - Works for midway boarding and reverse directions
+- ✅ **Route search** - Find buses by route (e.g., "Iritty to Thalassery")
 - ✅ **Multiple bus support** - Track unlimited number of buses simultaneously
 - ✅ **Interactive map** - Beautiful Leaflet.js map with custom bus icons
 - ✅ **Route visualization** - Display bus routes and calculate distances
-- ✅ **Speed monitoring** - Real-time speed tracking for all buses
+- ✅ **Speed monitoring** - Real-time speed tracking with heading/direction
 - ✅ **Driver app** - Dedicated mobile-friendly interface for bus drivers
 - ✅ **Admin dashboard** - Monitor all buses and statistics
 - ✅ **Depot management** - Organize buses by depot locations
 - ✅ **Auto-cleanup** - Automatically removes stale data (buses offline >10 minutes)
 - ✅ **Mobile-responsive** - Works perfectly on all devices
 - ✅ **PWA support** - Install as a native app on mobile devices
-- ✅ **Background tracking** - Keeps tracking even when screen is off
+- ✅ **Background tracking** - Keeps tracking even when screen is off (Android)
 - ✅ **Screen wake lock** - Prevents screen from sleeping during tracking
+- ✅ **Offline support** - Service Worker with offline queue
+- ✅ **Location accuracy** - GPS accuracy reporting and speed calculation
 
 ## 📁 Project Structure
 
@@ -30,12 +35,20 @@ ksrtc-bus-tracker/
 │   ├── index.html           # Main tracking interface
 │   ├── driver.html          # Driver app (for bus drivers)
 │   ├── admin.html           # Admin dashboard
-│   └── manifest.json        # PWA manifest
+│   ├── manifest.json        # PWA manifest
+│   ├── sw.js                # Service Worker for offline support
+│   └── route-stops.js       # Route stop database for intelligent search
 ├── package.json
 ├── vercel.json
 ├── .env.local.example       # Environment variables template
 ├── .gitignore
-└── README.md
+├── README.md
+├── ROUTE_GUIDE.md          # Route search documentation
+├── SEARCH_QUICK_REF.md     # Quick reference for search
+├── STOP_BASED_SEARCH.md    # Stop-based search guide (NEW!)
+├── STOP_SEARCH_QUICKSTART.md # Quick start for stop search (NEW!)
+├── ANDROID_SETUP.md        # Android setup for drivers
+└── PRODUCTION_STATUS.md    # Production deployment status
 ```
 
 ## 🚀 Quick Start
@@ -136,21 +149,53 @@ MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/?retr
 ### For Passengers (Main Tracker)
 
 1. Visit the homepage: `https://your-domain.vercel.app`
-2. View all active buses on the map
-3. Select a bus from the dropdown to track it
-4. See real-time location, speed, and route information
+
+2. **Search by stops** (NEW - Intelligent Search):
+   - Enter **From**: `Mattannur`
+   - Enter **To**: `Koothparamba`
+   - Click "Find Buses"
+   - See buses that will reach your destination (works both directions!)
+   
+3. **Search by route**: Enter route like "Iritty to Thalassery" in either box
+
+4. View all active buses on the map (or filtered by stops/route)
+
+5. Select a bus from the dropdown to track it
+
+6. See real-time location, speed, heading, and route information
+
+7. Click "Clear Filter" (✕) to see all buses again
+
+**Stop Search Examples:**
+- `Mattannur → Koothparamba` - Midway travel (reverse direction)
+- `Iritty → Mattannur` - Full route segment
+- `Peravoor → Thalassery` - Forward direction
+- `Panoor → Koothparamba` - Any stop to any stop
+
+**Route Search Examples:**
+- `Iritty to Thalassery` - Find buses on this route
+- `IRT-TLY-001` - Find specific route number
+- `Kannur` - Find all buses from/to Kannur
 
 ### For Bus Drivers
 
 1. Visit: `https://your-domain.vercel.app/driver.html`
 2. Enter bus details:
-   - Bus Number (e.g., KL-01-AB-1234)
-   - Route Number
+   - Bus Number (e.g., KL-01-AB-1234) - **Required**
+   - Route Number (e.g., IRT-TLY-001) - **Required**
+   - Route Name (e.g., Iritty to Thalassery) - **Recommended**
    - Driver ID
    - Depot Location
 3. Click "Start Tracking"
-4. Keep the browser open during your shift
-5. Click "Stop Tracking" when done
+4. Keep the app in foreground during your shift
+5. Enable location "Always" and disable battery optimization
+6. Click "Stop Tracking" when done
+
+**Important for Drivers:**
+- See `ANDROID_SETUP.md` for detailed setup instructions
+- Install as PWA for better performance
+- Keep GPS enabled throughout journey
+- Connect to vehicle charger recommended
 
 ### For Administrators
 
@@ -172,8 +217,10 @@ MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/?retr
   "speed": 45.5,
   "heading": 180,
   "driverId": "DR123",
-  "routeNumber": "TVM-EKM-001",
-  "busNumber": "KL-01-AB-1234"
+  "routeNumber": "IRT-TLY-001",
+  "routeName": "Iritty to Thalassery",
+  "busNumber": "KL-01-AB-1234",
+  "accuracy": 10
 }
 ```
 
@@ -195,8 +242,9 @@ curl https://your-domain.vercel.app/api/location
 ```json
 {
   "busNumber": "KL-01-AB-1234",
-  "routeNumber": "TVM-EKM-001",
-  "depot": "Thiruvananthapuram",
+  "routeNumber": "IRT-TLY-001",
+  "routeName": "Iritty to Thalassery",
+  "depot": "Kannur",
   "driverId": "DR123"
 }
 ```
@@ -277,9 +325,37 @@ if (req.headers['x-api-key'] !== API_KEY) {
 
 ### `locations` Collection
 Stores real-time bus locations (auto-cleaned after 10 minutes of inactivity)
+```javascript
+{
+  busId: "KSRTC_KL-01-AB-1234",
+  lat: 10.8505,
+  lng: 76.2711,
+  speed: 45.5,
+  heading: 180,
+  driverId: "DR123",
+  routeNumber: "IRT-TLY-001",
+  routeName: "Iritty to Thalassery",
+  busNumber: "KL-01-AB-1234",
+  accuracy: 10,
+  timestamp: ISODate("2025-10-01T10:30:00Z"),
+  lastUpdated: ISODate("2025-10-01T10:30:00Z")
+}
+```
 
 ### `buses` Collection
 Stores registered bus information
+```javascript
+{
+  busId: "KSRTC_KL-01-AB-1234",
+  busNumber: "KL-01-AB-1234",
+  routeNumber: "IRT-TLY-001",
+  routeName: "Iritty to Thalassery",
+  depot: "Kannur",
+  driverId: "DR123",
+  registeredAt: ISODate("2025-10-01T08:00:00Z"),
+  updatedAt: ISODate("2025-10-01T08:00:00Z")
+}
+```
 
 ### `routes` Collection
 Stores route information

@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
     const locations = database.collection('locations');
 
     if (req.method === 'POST') {
-      const { busId, lat, lng, speed, heading, driverId, routeNumber, busNumber } = req.body;
+      const { busId, lat, lng, speed, heading, driverId, routeNumber, busNumber, routeName, accuracy } = req.body;
       
       if (!busId || !lat || !lng) {
         return res.status(400).json({ error: 'Missing required fields' });
@@ -53,7 +53,9 @@ module.exports = async (req, res) => {
             heading: heading || 0,
             driverId: driverId || 'unknown',
             routeNumber: routeNumber || 'N/A',
+            routeName: routeName || routeNumber || 'N/A',
             busNumber: busNumber || busId,
+            accuracy: accuracy || 0,
             timestamp: new Date(),
             lastUpdated: new Date()
           } 
