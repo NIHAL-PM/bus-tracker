@@ -334,24 +334,100 @@
 
             const API_URL = '/api/location';
 
-            // Bus icon with rotation support
-            function createBusIcon(heading = 0, color = '#667eea') {
+            // Enhanced 3D Bus Icon with proper orientation
+            function createBusIcon(heading = 0, speed = 0, color = '#667eea') {
+                const isMoving = speed > 1;
+                const busColor = isMoving ? '#10b981' : color;
+                
                 return L.divIcon({
                     html: `
-                        <div style="transform: rotate(${heading}deg); transition: transform 0.3s;">
-                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <rect x="4" y="4" width="16" height="16" rx="2" fill="${color}" stroke="#fff" stroke-width="1.5"/>
-                                <rect x="6" y="6" width="5" height="4" rx="1" fill="#fff"/>
-                                <rect x="13" y="6" width="5" height="4" rx="1" fill="#fff"/>
-                                <rect x="6" y="12" width="12" height="3" rx="0.5" fill="#fff"/>
-                                <circle cx="8" cy="18" r="1.5" fill="#fff"/>
-                                <circle cx="16" cy="18" r="1.5" fill="#fff"/>
+                        <div style="transform: rotate(${heading}deg); transition: transform 0.5s ease-out;">
+                            <svg width="50" height="50" viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg">
+                                <!-- Shadow (3D effect) -->
+                                <ellipse cx="25" cy="45" rx="15" ry="5" fill="rgba(0,0,0,0.4)" opacity="0.6"/>
+                                
+                                <!-- Bus Body (3D perspective) -->
+                                <defs>
+                                    <linearGradient id="busGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                                        <stop offset="0%" style="stop-color:${busColor};stop-opacity:1" />
+                                        <stop offset="100%" style="stop-color:${busColor};stop-opacity:0.7" />
+                                    </linearGradient>
+                                    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+                                        <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+                                        <feOffset dx="1" dy="2" result="offsetblur"/>
+                                        <feComponentTransfer>
+                                            <feFuncA type="linear" slope="0.5"/>
+                                        </feComponentTransfer>
+                                        <feMerge>
+                                            <feMergeNode/>
+                                            <feMergeNode in="SourceGraphic"/>
+                                        </feMerge>
+                                    </filter>
+                                </defs>
+                                
+                                <!-- Main bus body with 3D effect -->
+                                <rect x="12" y="10" width="26" height="30" rx="4" fill="url(#busGradient)" 
+                                      stroke="#1f2937" stroke-width="2" filter="url(#shadow)"/>
+                                
+                                <!-- Roof -->
+                                <rect x="14" y="8" width="22" height="5" rx="3" fill="${busColor}" opacity="0.9"/>
+                                
+                                <!-- Windshield (front) -->
+                                <rect x="15" y="12" width="9" height="7" rx="1" fill="#dbeafe" 
+                                      stroke="#374151" stroke-width="1" opacity="0.9"/>
+                                <rect x="26" y="12" width="9" height="7" rx="1" fill="#dbeafe" 
+                                      stroke="#374151" stroke-width="1" opacity="0.9"/>
+                                
+                                <!-- Door -->
+                                <rect x="18" y="24" width="14" height="14" rx="2" fill="#374151" 
+                                      stroke="#1f2937" stroke-width="1"/>
+                                
+                                <!-- Door panels -->
+                                <rect x="20" y="26" width="4" height="10" rx="1" fill="#4b5563" opacity="0.8"/>
+                                <rect x="26" y="26" width="4" height="10" rx="1" fill="#4b5563" opacity="0.8"/>
+                                
+                                <!-- Wheels with 3D effect -->
+                                <g>
+                                    <circle cx="17" cy="40" r="4" fill="#1f2937" stroke="#374151" stroke-width="1"/>
+                                    <circle cx="17" cy="40" r="2" fill="#6b7280"/>
+                                    <circle cx="33" cy="40" r="4" fill="#1f2937" stroke="#374151" stroke-width="1"/>
+                                    <circle cx="33" cy="40" r="2" fill="#6b7280"/>
+                                </g>
+                                
+                                <!-- Direction indicator (arrow pointing forward) -->
+                                <path d="M 25 2 L 28 7 L 22 7 Z" fill="#fbbf24" stroke="#fff" stroke-width="0.5">
+                                    ${isMoving ? '<animate attributeName="opacity" values="1;0.3;1" dur="1s" repeatCount="indefinite"/>' : ''}
+                                </path>
+                                
+                                <!-- Headlights -->
+                                <circle cx="17" cy="9" r="2" fill="#fef3c7" opacity="${isMoving ? '1' : '0.5'}"/>
+                                <circle cx="33" cy="9" r="2" fill="#fef3c7" opacity="${isMoving ? '1' : '0.5'}"/>
+                                
+                                <!-- Side mirrors -->
+                                <rect x="10" y="18" width="3" height="5" rx="1" fill="#374151"/>
+                                <rect x="37" y="18" width="3" height="5" rx="1" fill="#374151"/>
+                                
+                                <!-- Motion indicator (when moving) -->
+                                ${isMoving ? `
+                                    <g opacity="0.6">
+                                        <path d="M 8 20 L 5 20" stroke="${busColor}" stroke-width="2" stroke-linecap="round">
+                                            <animate attributeName="opacity" values="0.8;0.2;0.8" dur="0.8s" repeatCount="indefinite"/>
+                                        </path>
+                                        <path d="M 8 25 L 4 25" stroke="${busColor}" stroke-width="2" stroke-linecap="round">
+                                            <animate attributeName="opacity" values="0.6;0.1;0.6" dur="0.9s" repeatCount="indefinite"/>
+                                        </path>
+                                        <path d="M 8 30 L 5 30" stroke="${busColor}" stroke-width="2" stroke-linecap="round">
+                                            <animate attributeName="opacity" values="0.7;0.15;0.7" dur="1s" repeatCount="indefinite"/>
+                                        </path>
+                                    </g>
+                                ` : ''}
                             </svg>
                         </div>
                     `,
-                    className: 'bus-marker',
-                    iconSize: [40, 40],
-                    iconAnchor: [20, 40]
+                    className: 'bus-marker-3d',
+                    iconSize: [50, 50],
+                    iconAnchor: [25, 45],
+                    popupAnchor: [0, -45]
                 });
             }
 
@@ -956,7 +1032,9 @@
                     activeBusIds.add(bus.busId);
                     
                     const position = [bus.lat, bus.lng];
-                    const icon = createBusIcon(bus.heading || 0);
+                    const speed = bus.speed || 0;
+                    const heading = bus.heading || 0;
+                    const icon = createBusIcon(heading, speed);
 
                     if (busMarkers[bus.busId]) {
                         // Update existing marker
